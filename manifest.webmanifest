@@ -1,0 +1,22 @@
+{
+  "name": "Lector · anime y manga",
+  "short_name": "Lector",
+  "description": "Lee manga y mira anime guardados en tu dispositivo.",
+  "lang": "es",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#101217",
+  "theme_color": "#101217",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "share_target": {
+    "action": "./share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": { "files": [{ "name": "files", "accept": ["video/*", "image/*", "application/zip", "application/x-cbz", ".cbz", ".zip", ".mkv", ".srt", ".vtt"] }] }
+  }
+}

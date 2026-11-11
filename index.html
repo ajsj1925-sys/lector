@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101217">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Lector">
+<title>Lector</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="app">
+  <nav id="nav" aria-label="Secciones">
+    <div class="brand"><img src="icon.svg" alt=""><span>Lector</span></div>
+    <button data-view="inicio" class="on"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Inicio</span></button>
+    <button data-view="biblioteca"><svg viewBox="0 0 24 24"><path d="M4 4h4v16H4zM10 4h4v16h-4zM16.5 4.5l3.8 1-3.9 15-3.8-1z"/></svg><span>Biblioteca</span></button>
+    <button data-view="explorar"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l5 5"/></svg><span>Explorar</span></button>
+    <button data-view="descargas"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></svg><span>Descargas</span><i class="badge" id="dlBadge" hidden></i></button>
+    <button data-view="ajustes"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg><span>Ajustes</span></button>
+    <div class="storage" id="navStorage"></div>
+  </nav>
+
+  <main id="main">
+    <header id="top">
+      <h1 id="viewTitle">Inicio</h1>
+      <div class="top-actions">
+        <button class="btn primary" id="importBtn" title="Añadir archivos"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>Añadir</span></button>
+      </div>
+    </header>
+    <section id="view"></section>
+  </main>
+
+  <aside id="detail" aria-hidden="true"></aside>
+</div>
+
+<div id="reader" class="overlay" hidden></div>
+<div id="player" class="overlay" hidden></div>
+<div id="sheet" class="sheet-wrap" hidden></div>
+<div id="drop" hidden><div>Suelta aquí tus archivos</div></div>
+<div id="toast" role="status"></div>
+
+<input type="file" id="fileInput" multiple hidden
+  accept=".cbz,.zip,.jpg,.jpeg,.png,.webp,.gif,.avif,.mp4,.webm,.mkv,.m4v,.mov,.srt,.vtt,application/zip,image/*,video/*">
+<input type="file" id="folderInput" webkitdirectory multiple hidden>
+
+<script src="js/db.js"></script>
+<script src="js/zip.js"></script>
+<script src="js/demo.js"></script>
+<script src="js/addons.js"></script>
+<script src="js/reader.js"></script>
+<script src="js/player.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
