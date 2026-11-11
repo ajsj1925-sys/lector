@@ -7,7 +7,7 @@ todo lo que añades o descargas se guarda en el navegador del dispositivo (Index
 ## Abrirla
 - **PC, para probar:** en esta carpeta, `python -m http.server 8080` y abrir http://localhost:8080
   (con doble clic sobre index.html no funciona el modo sin conexión).
-- **Móvil/tablet:** abrir la web publicada (GitHub Pages) → Instalar / Añadir a pantalla de inicio.
+- **Móvil/tablet:** abrir https://ajsj1925-sys.github.io/lector/ → Instalar / Añadir a pantalla de inicio.
 
 ## Estructura
 | Archivo | Qué hace |

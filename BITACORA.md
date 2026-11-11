@@ -92,8 +92,14 @@ Dio vía libre ("Venga, empieza") con el plan: estilo tipo Crunchyroll + Mihon.
 página doble: los 6 modos, doble página RTL, desplazar, recortar, viñetas en orden manga, noche, miniaturas,
 tema claro, toque lateral en móvil. Sin errores de consola.
 
+## 2026-11-11 · Publicación
+- El usuario creó el repo vacío **ajsj1925-sys/lector** (público). Se subió el código a `main` y a `gh-pages`
+  (con `.nojekyll`); al empujar `gh-pages` GitHub activó Pages solo.
+- **Web: https://ajsj1925-sys.github.io/lector/** (comprobado que carga).
+- Para actualizar: hacer commit y `git push origin main` **y** `git push origin main:gh-pages`.
+- Al publicar una versión nueva, subir `CACHE` en `sw.js` (p. ej. `lector-v0.2.1`) para que los móviles la descarguen.
+
 ## Pendiente (siguiente pasos, en orden)
-1. Publicar en GitHub Pages (repo `lector`) para instalarla en móvil y tablet.
 2. **Telegram**: iniciar sesión con GramJS en el navegador (número + código), elegir bot, mandar comando,
    recibir el archivo y descargarlo a la biblioteca. Necesita los **comandos de los bots** del usuario.
 3. Ver online (sin descargar) para add-ons de streaming reales.
