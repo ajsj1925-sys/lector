@@ -56,6 +56,42 @@ importación de un CBZ (4 páginas, doble página RTL correcta) y de un MP4 + SR
 
 **Archivos**: todos los de la tabla del README.
 
+## 2026-11-11 (noche) · v0.2.0 · Lector con todos los modos + interfaz nueva
+**Petición del usuario:** "la interfaz mucho mejor" y que el lector de manga permita leer "de todas las formas que se pueda".
+Dio vía libre ("Venga, empieza") con el plan: estilo tipo Crunchyroll + Mihon.
+
+**Lector de manga (`js/reader.js`, reescrito entero)**
+- 6 modos: Manga (dcha→izq), Cómic (izq→dcha), Vertical paginado, Webtoon (scroll continuo),
+  Tira horizontal (dcha→izq o izq→dcha) y **Viñeta a viñeta** (detecta viñetas con cortes XY por los huecos
+  blancos sobre una copia reducida de la página; primero página entera y luego cada viñeta con zoom animado).
+- Página: encaje pantalla/ancho/alto/original; doble página auto/sí/no (las páginas anchas van solas);
+  "desplazar una página" (portada sola); **partir páginas dobles** en vertical; **recortar bordes**
+  (detecta márgenes por luminancia); fondo negro/gris/blanco; separación y ancho en webtoon.
+- Controles: zonas táctiles Lados / En L / Arriba-abajo / Solo menú (+ invertir, con mapa visual);
+  animación Deslizar / Hoja (giro 3D) / Fundido / Ninguna; auto-scroll con velocidad; pantalla siempre
+  encendida (Wake Lock); pantalla completa; bloqueo de giro (Android).
+- Color: brillo, sepia, blanco y negro, **modo noche** (invertido) con botón directo en la barra.
+- Zoom: pellizco y doble toque (móvil), Ctrl+rueda o +/− (PC); arrastrar para mover.
+- Extras: miniaturas para saltar, página de "fin de capítulo" con el siguiente, perfiles rápidos
+  (Manga, Cómic, Webtoon, Noche), la configuración se guarda **por serie** (`series.reader`) y
+  "Usar en todas" la guarda como predeterminada (`kv.readerPrefs`).
+- Si la página es más alta/ancha que la pantalla (encaje ancho/alto), pasar primero desplaza dentro de ella.
+
+**Interfaz (`css/app.css` reescrito, `js/app.js` ampliado)**
+- Inicio: **banner** grande con lo último que estabas viendo/leyendo (fondo difuminado de la portada,
+  rota cada 8 s entre los 5 últimos), y filas horizontales: Continuar, Añadido recientemente, Por empezar,
+  Anime, Manga, Terminados (con flechas en PC).
+- Portadas con efecto al pasar el ratón, botón de reproducir y etiqueta NUEVO.
+- Ficha de serie: fondo difuminado, chips de datos, pestañas **Capítulos / Información / Lectura**,
+  orden 1→9 / 9→1 y filtro "Sin leer". En "Lectura" se elige el modo con que se abre esa serie.
+- **Temas**: Oscuro, Negro puro (OLED) y Claro + 8 colores de acento (Ajustes → Apariencia).
+- Buscador en la barra superior (busca en la biblioteca).
+- Móvil: banner compacto, ficha como pantalla deslizante, ajustes del lector como hoja inferior.
+
+**Probado** con Playwright (PC 1440×900, iPad horizontal, iPhone 13) usando un CBZ de prueba con viñetas y una
+página doble: los 6 modos, doble página RTL, desplazar, recortar, viñetas en orden manga, noche, miniaturas,
+tema claro, toque lateral en móvil. Sin errores de consola.
+
 ## Pendiente (siguiente pasos, en orden)
 1. Publicar en GitHub Pages (repo `lector`) para instalarla en móvil y tablet.
 2. **Telegram**: iniciar sesión con GramJS en el navegador (número + código), elegir bot, mandar comando,

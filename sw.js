@@ -1,6 +1,6 @@
 /* Lector · service worker: funciona sin conexión y recibe archivos compartidos (Android). */
 importScripts('js/db.js');
-const CACHE = 'lector-v0.1.0';
+const CACHE = 'lector-v0.2.0';
 const SHELL = ['./', 'index.html', 'css/app.css', 'js/db.js', 'js/zip.js', 'js/demo.js', 'js/addons.js', 'js/reader.js', 'js/player.js', 'js/app.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL))); self.skipWaiting(); });

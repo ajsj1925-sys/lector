@@ -2,9 +2,10 @@
 const App = (() => {
   const $ = (s, r = document) => r.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const VERSION = '0.1.0';
+  const VERSION = '0.2.0';
   const TITLES = { inicio: 'Inicio', biblioteca: 'Biblioteca', explorar: 'Explorar', descargas: 'Descargas', ajustes: 'Ajustes' };
-  const ui = { view: 'inicio', libKind: 'all', libSort: 'recent', libQ: '', exKind: '', exQ: '', detail: null };
+  const ui = { view: 'inicio', libKind: 'all', libSort: 'recent', libQ: '', exKind: '', exQ: '', detail: null, dTab: 'eps', dSort: 'asc', dUnread: false, hero: 0 };
+  const ACCENTS = ['#ff7a45', '#f43f5e', '#ec4899', '#8b5cf6', '#3b82f6', '#06b6d4', '#10b981', '#f59e0b'];
 
   /* ---------- utilidades ---------- */
   function fmtSize(b) { if (!b) return '0 MB'; const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0; while (b >= 1024 && i < 4) { b /= 1024; i++; } return b.toFixed(i > 2 ? 1 : 0) + ' ' + u[i]; }
@@ -62,6 +63,14 @@ const App = (() => {
     return its[i + dir] || null;
   }
   async function saveSeriesMode(series, mode) { const s = await DB.get('series', series.id); if (s) { s.mode = mode; await DB.put('series', s); } }
+  async function saveSeriesReader(series, cfg) { const s = await DB.get('series', series.id); if (s) { s.reader = cfg; await DB.put('series', s); } }
+  async function applyTheme() {
+    const t = await DB.getKV('theme', { mode: 'dark', ac: ACCENTS[0] });
+    document.documentElement.dataset.theme = t.mode;
+    document.documentElement.style.setProperty('--ac', t.ac);
+    document.querySelector('meta[name=theme-color]').content = { dark: '#0b0c10', amoled: '#000000', light: '#f4f5f8' }[t.mode];
+    return t;
+  }
 
   function play(series, item) {
     const done = () => refresh();
@@ -70,20 +79,40 @@ const App = (() => {
 
   /* ---------- piezas de interfaz ---------- */
   const tag = k => `<span class="tag ${k}">${k}</span>`;
+  const playIco = '<svg viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></svg>';
+  const isNew = s => s.items && !s.lastAt && Date.now() - s.addedAt < 3 * 86400000;
   function cardHTML(s, extra = '') {
     const p = s.items?.length ? s.doneCount / s.items.length : 0;
     return `<button class="card ${ui.detail?.id === s.id ? 'sel' : ''}" data-series="${esc(s.id)}" ${extra}>
-      <div class="cv"><img src="${esc(s.cover)}" alt="" loading="lazy">${tag(s.kind)}${p ? `<div class="prog"><i style="width:${p * 100}%"></i></div>` : ''}</div>
-      <b>${esc(s.title)}</b><div class="tiny">${s.items ? `${s.doneCount}/${s.items.length} ${s.kind === 'anime' ? 'vistos' : 'leídos'}` : esc(s.sourceName || '')}</div></button>`;
+      <div class="cv"><img src="${esc(s.cover)}" alt="" loading="lazy">${tag(s.kind)}${isNew(s) ? '<span class="newb">NUEVO</span>' : ''}${p ? `<div class="prog"><i style="width:${p * 100}%"></i></div>` : ''}<div class="hov"><span>${playIco}</span></div></div>
+      <b>${esc(s.title)}</b><div class="tiny">${s.items ? (s.doneCount === s.items.length && s.items.length ? 'Terminado' : `${s.doneCount}/${s.items.length} ${s.kind === 'anime' ? 'vistos' : 'leídos'}`) : esc(s.sourceName || '')}</div></button>`;
   }
+  const leftTxt = (s, it) => s.kind === 'anime' ? (it.total && it.pos ? `quedan ${fmtTime(it.total - it.pos)}` : 'Sin empezar') : (it.total && it.pos ? `pág. ${it.pos + 1} de ${it.total}` : 'Sin empezar');
   function contHTML(s, it) {
     const frac = it.total ? Math.min(1, it.pos / it.total) : 0;
-    const left = s.kind === 'anime' ? (it.total ? `quedan ${fmtTime(it.total - it.pos)}` : '') : (it.total ? `pág. ${it.pos + 1} de ${it.total}` : '');
     return `<button class="cont" data-play="${esc(s.id)}|${esc(it.id)}">
       <div class="cv"><img src="${esc(s.cover)}" alt=""></div>
-      <div class="info"><b>${esc(s.title)}</b><div class="muted">${esc(it.title)}</div><div class="tiny">${left}</div>
+      <div class="info"><b>${esc(s.title)}</b><div class="muted">${esc(it.title)}</div><div class="tiny">${leftTxt(s, it)}</div>
       <div class="bar"><i style="width:${frac * 100}%"></i></div></div>
-      <span class="play"><svg viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></svg></span></button>`;
+      <span class="play">${playIco}</span></button>`;
+  }
+  const arrows = id => `<span class="rail-nav"><button data-rail="${id}|-1" title="Anterior"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button><button data-rail="${id}|1" title="Siguiente"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button></span>`;
+  const railHTML = (id, title, list, wide) => list.length ? `<h2 class="sec">${title} <span class="count">${list.length}</span>${arrows(id)}</h2><div class="rail ${wide ? 'wide' : ''}" id="rail-${id}">${list.join('')}</div>` : '';
+  function heroHTML(list) {
+    if (!list.length) return '';
+    const i = ui.hero % list.length, [s, it] = list[i];
+    const frac = it.total ? Math.min(1, it.pos / it.total) : 0;
+    const verb = s.kind === 'anime' ? 'Ver' : 'Leer';
+    return `<section class="hero" id="hero"><div class="hero-bg" style="background-image:url(&quot;${esc(s.cover)}&quot;)"></div>
+      <div class="hero-in" data-k="${i}"><div class="cv"><img src="${esc(s.cover)}" alt=""></div>
+        <div class="hero-txt"><div class="kicker">${it.pos || it.lastAt ? 'Continuar ' + (s.kind === 'anime' ? 'viendo' : 'leyendo') : 'Empieza'}</div>
+          <h2>${esc(s.title)}</h2>
+          <div class="hero-meta"><span>${s.kind === 'anime' ? 'Anime' : 'Manga'}</span>·<span>${esc(it.title)}</span>·<span>${leftTxt(s, it)}</span></div>
+          ${frac ? `<div class="hero-prog"><i style="width:${frac * 100}%"></i></div>` : ''}
+          ${s.desc ? `<p>${esc(s.desc)}</p>` : ''}
+          <div class="hero-acts"><button class="btn primary" data-play="${esc(s.id)}|${esc(it.id)}">${playIco}${it.pos ? 'Continuar' : verb}</button>
+          <button class="btn glass" data-series="${esc(s.id)}">Ficha</button></div></div></div>
+      ${list.length > 1 ? `<div class="dots">${list.map((_, k) => `<button data-hero="${k}" class="${k === i ? 'on' : ''}" title="${esc(list[k][0].title)}"></button>`).join('')}</div>` : ''}</section>`;
   }
   const emptyLib = () => `<div class="empty"><b>Tu biblioteca está vacía</b>Añade archivos de anime o manga desde este dispositivo, o descárgalos desde Explorar.
     <div><button class="btn primary" data-act="import">Añadir archivos</button> <button class="btn" data-go="explorar">Ir a Explorar</button></div></div>`;
@@ -94,11 +123,18 @@ const App = (() => {
       const lib = await libraryData();
       if (!lib.length) return emptyLib();
       const cont = lib.filter(s => s.lastAt).sort((a, b) => b.lastAt - a.lastAt).map(s => [s, continueItem(s)]).filter(x => x[1]);
-      const recent = [...lib].sort((a, b) => b.addedAt - a.addedAt).slice(0, 12);
-      const anime = lib.filter(s => s.kind === 'anime').length, manga = lib.length - anime;
-      return `${cont.length ? `<h2 class="sec">Continuar</h2><div class="rail">${cont.map(([s, it]) => contHTML(s, it)).join('')}</div>` : ''}
-        <h2 class="sec">Añadido recientemente <button class="btn sm ghost" data-go="biblioteca">Ver todo<span class="hide-m">&nbsp;(${anime} anime · ${manga} manga)</span></button></h2>
-        <div class="grid">${recent.map(s => cardHTML(s)).join('')}</div>`;
+      const heroList = cont.slice(0, 5); ui.heroList = heroList;
+      const recent = [...lib].sort((a, b) => b.addedAt - a.addedAt).slice(0, 15);
+      const pending = lib.filter(s => !s.lastAt && s.items.length).sort((a, b) => b.addedAt - a.addedAt);
+      const done = lib.filter(s => s.items.length && s.doneCount === s.items.length);
+      const by = k => lib.filter(s => s.kind === k).sort((a, b) => (b.lastAt || b.addedAt) - (a.lastAt || a.addedAt));
+      return heroHTML(heroList)
+        + railHTML('cont', 'Continuar', cont.map(([s, it]) => contHTML(s, it)), true)
+        + railHTML('new', 'Añadido recientemente', recent.map(s => cardHTML(s)))
+        + railHTML('pend', 'Por empezar', pending.map(s => cardHTML(s)))
+        + railHTML('anime', 'Anime', by('anime').map(s => cardHTML(s)))
+        + railHTML('manga', 'Manga', by('manga').map(s => cardHTML(s)))
+        + railHTML('done', 'Terminados', done.map(s => cardHTML(s)));
     },
 
     async biblioteca() {
@@ -110,7 +146,7 @@ const App = (() => {
       lib.sort(sorters[ui.libSort]);
       return `<div class="toolbar">
           <div class="chips" data-chips="libKind">${[['all', 'Todo'], ['anime', 'Anime'], ['manga', 'Manga']].map(([k, l]) => `<button class="chip ${ui.libKind === k ? 'on' : ''}" data-v="${k}">${l}</button>`).join('')}</div>
-          <input type="search" id="libQ" placeholder="Buscar en tu biblioteca" value="${esc(ui.libQ)}">
+          ${ui.libQ ? `<button class="chip on" data-act="clearQ">“${esc(ui.libQ)}” ✕</button>` : ''}
           <select id="libSort" style="width:auto">${[['recent', 'Última actividad'], ['added', 'Añadido'], ['az', 'A–Z']].map(([k, l]) => `<option value="${k}" ${ui.libSort === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
         </div>
         ${lib.length ? `<div class="grid">${lib.map(s => cardHTML(s)).join('')}</div>` : `<p class="muted">Nada coincide con la búsqueda.</p>`}`;
@@ -158,7 +194,8 @@ const App = (() => {
     async ajustes() {
       const addons = await Addons.list();
       const tg = await DB.getKV('telegram', {});
-      const rp = await DB.getKV('readerPrefs', { mode: 'rtl', double: 'auto' });
+      const rp = await DB.getKV('readerPrefs', {});
+      const theme = await DB.getKV('theme', { mode: 'dark', ac: ACCENTS[0] });
       const hasDemo = (await DB.all('series')).some(s => s.demo);
       const icon = a => a.type === 'telegram' ? `<div class="ico tg">${tgIcon}</div>` : `<div class="ico st"><svg viewBox="0 0 24 24"><path d="M3 6h18v12H3z"/><path d="M10 9l5 3-5 3z"/></svg></div>`;
       return `<div class="cols">
@@ -174,10 +211,14 @@ const App = (() => {
           <div class="field"><label>api_hash</label><input id="tgHash" value="${esc(tg.apiHash || '')}" placeholder="0123456789abcdef…"></div>
           <div class="chips"><button class="btn" data-act="saveTg">Guardar claves</button><button class="btn primary" data-act="tgLogin">Iniciar sesión</button></div></div>
 
-        <div class="panel"><h3>Lectura</h3>
-          <div class="kv"><span>Dirección por defecto</span><div class="seg" data-pref="mode">${[['rtl', 'Manga'], ['ltr', 'Cómic'], ['vertical', 'Webtoon']].map(([k, l]) => `<button data-v="${k}" class="${rp.mode === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
-          <div class="kv"><span>Doble página</span><div class="seg" data-pref="double">${[['auto', 'Auto'], ['on', 'Sí'], ['off', 'No']].map(([k, l]) => `<button data-v="${k}" class="${rp.double === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
-          <p class="tiny">Cada serie recuerda su propio modo si lo cambias mientras lees.</p></div>
+        <div class="panel"><h3>Apariencia</h3>
+          <div class="kv"><span>Tema</span><div class="seg" data-theme-mode>${[['dark', 'Oscuro'], ['amoled', 'Negro puro'], ['light', 'Claro']].map(([k, l]) => `<button data-v="${k}" class="${theme.mode === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+          <div class="kv"><span>Color</span><div class="swatches">${ACCENTS.map(c => `<button data-accent="${c}" class="${theme.ac === c ? 'on' : ''}" style="background:${c}" title="${c}"></button>`).join('')}</div></div>
+          <p class="tiny">"Negro puro" gasta menos batería en móviles con pantalla OLED.</p></div>
+
+        <div class="panel"><h3>Lectura de manga</h3>
+          <p class="tiny" style="margin-bottom:8px">Modo predeterminado para series nuevas. Dentro del lector puedes cambiarlo todo (⚙) y se guarda por serie.</p>
+          <div class="rmodes" style="padding:0">${Reader.MODES.map(([id, n, , p]) => `<button class="mode ${(rp.mode || 'rtl') === id ? 'on' : ''}" data-pref-mode="${id}"><svg viewBox="0 0 24 24" style="width:22px;height:22px">${p}</svg><b>${n}</b></button>`).join('')}</div></div>
 
         <div class="panel"><h3>App</h3>
           <div class="kv"><span>Versión</span><span class="muted">${VERSION}</span></div>
@@ -191,7 +232,7 @@ const App = (() => {
   const tgIcon = `<svg viewBox="0 0 24 24" style="fill:currentColor;stroke:none"><path d="M21.5 4.3L2.9 11.4c-1.3.5-1.2 1.2-.2 1.5l4.7 1.5 1.8 5.6c.2.6.4.8.9.8.4 0 .6-.2.9-.4l2.3-2.2 4.7 3.5c.9.5 1.5.2 1.7-.8l3.1-14.6c.3-1.3-.5-1.9-1.3-1.5zM8.6 14l9.5-6c.4-.3.8-.1.5.2l-7.9 7.2-.3 3.3z"/></svg>`;
 
   /* ---------- ficha de serie (panel derecho / pantalla completa en móvil) ---------- */
-  async function openDetail(id) {
+  async function openDetail(id, keepScroll) {
     let s, remote = null;
     if (id.startsWith('r:')) {
       const [, aid, rid] = id.split(':');
@@ -206,35 +247,59 @@ const App = (() => {
       s = (await libraryData()).find(x => x.id === id);
       if (!s) return closeDetail();
     }
+    if (ui.detail?.id !== id) { ui.dTab = 'eps'; ui.dUnread = false; }
     ui.detail = { id, remote, s };
     const d = $('#detail');
     const cur = remote ? null : continueItem(s);
     const verb = s.kind === 'anime' ? 'Ver' : 'Leer';
-    const items = s.items.map(it => {
+    const unit = s.kind === 'anime' ? ['episodio', 'episodios', 'vistos'] : ['capítulo', 'capítulos', 'leídos'];
+    let list = [...s.items];
+    if (ui.dUnread) list = list.filter(i => !i.done);
+    if (ui.dSort === 'desc') list.reverse();
+    const items = list.map(it => {
       const frac = it.total && !it.done ? it.pos / it.total : 0;
       const sub = remote ? (it.have ? 'En tu biblioteca' : fmtSize(it.size)) : it.done ? (s.kind === 'anime' ? 'Visto' : 'Leído') : frac ? (s.kind === 'anime' ? fmtTime(it.pos) + ' de ' + fmtTime(it.total) : `Pág. ${it.pos + 1} de ${it.total}`) : fmtSize(it.size);
       return `<div class="ep ${it.done ? 'done' : ''} ${cur?.id === it.id ? 'cur' : ''}">
-        <button class="ep" style="padding:0;flex:1" data-item="${remote ? 'r' + it.num : esc(it.id)}"><span class="n">${it.num}</span>
+        <button class="ep-btn" data-item="${remote ? 'r' + it.num : esc(it.id)}"><span class="n">${it.num}</span>
         <span class="grow"><b>${esc(it.title)}</b><span class="tiny">${sub}</span>${frac ? `<div class="mini"><i style="width:${frac * 100}%"></i></div>` : ''}</span></button>
         ${remote ? (it.have ? '' : `<button class="more" data-dl="${it.num}" title="Descargar"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg></button>`)
                  : `<button class="more" data-menu="${esc(it.id)}" title="Más"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg></button>`}</div>`;
-    }).join('');
-    d.innerHTML = `<div class="d-head"><div class="cv"><img src="${esc(s.cover)}" alt="">${tag(s.kind)}</div>
-        <div style="min-width:0;padding-right:30px"><h2>${esc(s.title)}</h2>
-        <div class="tiny">${s.items.length} ${s.kind === 'anime' ? 'episodios' : 'capítulos'}${remote ? ' · ' + esc(remote.name) : ` · ${s.doneCount} ${s.kind === 'anime' ? 'vistos' : 'leídos'} · ${fmtSize(s.size)}`}</div>
-        ${s.source && !remote ? `<div class="tiny">Fuente: ${esc(s.source)}</div>` : ''}</div>
-        <button class="d-close" data-act="closeDetail" title="Cerrar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    }).join('') || '<p class="muted" style="padding:12px">Nada que mostrar.</p>';
+    const tabs = [['eps', s.kind === 'anime' ? 'Episodios' : 'Capítulos'], ['info', 'Información']];
+    if (s.kind === 'manga' && !remote) tabs.push(['read', 'Lectura']);
+    const rmode = s.reader?.mode || ({ vertical: 'webtoon' }[s.mode] || s.mode) || (await DB.getKV('readerPrefs', {})).mode || 'rtl';
+    let body = '';
+    if (ui.dTab === 'eps') body = `<div class="d-tools"><span class="tiny">${list.length} ${unit[1]}</span>
+        <button class="chip ${ui.dUnread ? 'on' : ''}" data-dt="unread">Sin ${s.kind === 'anime' ? 'ver' : 'leer'}</button>
+        <button class="chip" data-dt="sort" title="Orden">${ui.dSort === 'asc' ? '1 → 9' : '9 → 1'}</button></div>${items}`;
+    if (ui.dTab === 'info') body = `${s.desc ? `<p class="d-desc">${esc(s.desc)}</p>` : ''}<dl class="info-grid">
+        <dt>Tipo</dt><dd>${s.kind === 'anime' ? 'Anime' : 'Manga'}</dd>
+        <dt>${unit[1][0].toUpperCase() + unit[1].slice(1)}</dt><dd>${s.items.length}</dd>
+        ${remote ? `<dt>Fuente</dt><dd>${esc(remote.name)}</dd>` : `<dt>Progreso</dt><dd>${s.doneCount} ${unit[2]}</dd><dt>Fuente</dt><dd>${esc(s.source || '—')}</dd><dt>Espacio</dt><dd>${fmtSize(s.size)}</dd>
+        <dt>Añadido</dt><dd>${new Date(s.addedAt).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}</dd>`}</dl>`;
+    if (ui.dTab === 'read') body = `<p class="tiny" style="padding:4px 8px 10px">Cómo se abre esta serie. Dentro del lector (⚙) tienes encaje, zoom, recorte, filtros, zonas táctiles y más.</p>
+        <div class="rmodes">${Reader.MODES.map(([id, n, sub, p]) => `<button class="mode ${rmode === id ? 'on' : ''}" data-smode="${id}"><svg viewBox="0 0 24 24" style="width:22px;height:22px">${p}</svg><b>${n}</b><small>${sub}</small></button>`).join('')}</div>`;
+    const pct = !remote && s.items.length ? s.doneCount / s.items.length : 0;
+    d.innerHTML = `<div class="d-banner" style="background-image:url(&quot;${esc(s.cover)}&quot;)"></div>
+      <div class="d-wrap">
+      <button class="d-close" data-act="closeDetail" title="Cerrar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      <div class="d-head"><div class="cv"><img src="${esc(s.cover)}" alt="">${tag(s.kind)}</div>
+        <div style="min-width:0;padding-right:28px"><h2>${esc(s.title)}</h2>
+        <div class="d-meta"><span>${s.items.length} ${unit[1]}</span>${remote ? `<span>${esc(remote.name)}</span>` : `<span>${Math.round(pct * 100)} % ${unit[2]}</span>${s.size ? `<span>${fmtSize(s.size)}</span>` : ''}`}</div></div></div>
       <div class="d-actions">
-        ${remote ? `<button class="btn primary" data-act="dlAll">Descargar todo</button><button class="btn" data-item="r1">${verb} online</button>`
-                 : `${cur ? `<button class="btn primary" data-item="${esc(cur.id)}">${cur.pos || cur.lastAt ? 'Continuar' : verb} · ${esc(cur.title)}</button>` : `<button class="btn primary" data-item="${esc(s.items[0]?.id)}">${verb} de nuevo</button>`}
-                    <button class="btn icon" data-act="seriesMenu" title="Más opciones">⋯</button>`}
+        ${remote ? `<button class="btn primary" data-act="dlAll"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Descargar todo</button><button class="btn" data-item="r1">${verb} online</button>`
+                 : `${cur ? `<button class="btn primary" data-item="${esc(cur.id)}">${playIco}${cur.pos || cur.lastAt ? 'Continuar' : verb} · ${esc(cur.title)}</button>` : `<button class="btn primary" data-item="${esc(s.items[0]?.id)}">${playIco}${verb} de nuevo</button>`}
+                    <button class="btn icon" data-act="seriesMenu" title="Más opciones"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>`}
       </div>
-      ${s.desc ? `<p class="d-desc">${esc(s.desc)}</p>` : ''}
-      <div class="eps">${items}</div>`;
+      ${pct ? `<div class="d-prog"><div class="bar"><i style="width:${pct * 100}%"></i></div></div>` : ''}
+      <div class="tabs">${tabs.map(([k, l]) => `<button data-dtab="${k}" class="${ui.dTab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="d-body">${body}</div></div>`;
+    const wasOpen = $('#app').classList.contains('has-detail');
     $('#app').classList.add('has-detail');
     document.querySelectorAll('.card').forEach(c => c.classList.toggle('sel', c.dataset.series === id));
-    d.scrollTop = 0;
-    d.querySelector('.ep.cur')?.scrollIntoView({ block: 'center' });
+    if (!keepScroll) { d.scrollTop = 0; if (ui.dTab === 'eps') d.querySelector('.ep.cur')?.scrollIntoView({ block: 'center' }); }
+    else d.scrollTop = keepScroll;
+    if (!wasOpen) d.firstElementChild?.nextElementSibling?.animate([{ opacity: 0, transform: 'translateX(20px)' }, { opacity: 1, transform: 'none' }], { duration: 300, easing: 'ease-out' });
   }
   function closeDetail() { ui.detail = null; $('#app').classList.remove('has-detail'); document.querySelectorAll('.card.sel').forEach(c => c.classList.remove('sel')); }
 
@@ -462,7 +527,7 @@ const App = (() => {
     ui.view = view;
     document.querySelectorAll('#nav>button').forEach(b => b.classList.toggle('on', b.dataset.view === view));
     $('#viewTitle').textContent = TITLES[view];
-    if (innerWidth <= 700) closeDetail();
+    if (innerWidth <= 720) closeDetail();
     await render();
     $('#main').scrollTop = 0;
   }
@@ -472,11 +537,13 @@ const App = (() => {
     rendering = true;
     const focus = document.activeElement?.id; const caret = document.activeElement?.selectionStart;
     $('#view').innerHTML = await views[ui.view]();
+    $('#top').classList.toggle('over', !!$('#hero'));
+    if (ui.view !== 'biblioteca' && document.activeElement?.id !== 'gq') { $('#gq').value = ''; ui.libQ = ''; }
     if (focus && $('#' + focus)) { const f = $('#' + focus); f.focus(); try { f.setSelectionRange(caret, caret); } catch { } }
     rendering = false;
     if (again) { again = false; render(); }
   }
-  async function refresh() { await render(); if (ui.detail) await openDetail(ui.detail.id); navStorage(); }
+  async function refresh() { await render(); if (ui.detail) await openDetail(ui.detail.id, $('#detail').scrollTop || 1); navStorage(); }
 
   function bind() {
     $('#nav').onclick = e => { const b = e.target.closest('[data-view]'); if (b) go(b.dataset.view); };
@@ -504,10 +571,18 @@ const App = (() => {
       const bot = t.closest('[data-bot]'); if (bot) return botSheet(bot.dataset.bot);
       const cs = t.closest('[data-cancelsid]'); if (cs) { Downloads.jobs.filter(j => j.sid === cs.dataset.cancelsid && j.state === 'cola').forEach(j => Downloads.cancel(j.id)); return; }
       const cancel = t.closest('[data-cancel]'); if (cancel) return Downloads.cancel(cancel.dataset.cancel);
-      const pref = t.closest('[data-pref] button'); if (pref) { const k = pref.parentElement.dataset.pref; const p = await DB.getKV('readerPrefs', { mode: 'rtl', double: 'auto' }); p[k] = pref.dataset.v; await DB.setKV('readerPrefs', p); return render(); }
+      const pm = t.closest('[data-pref-mode]'); if (pm) { const p = await DB.getKV('readerPrefs', {}); p.mode = pm.dataset.prefMode; await DB.setKV('readerPrefs', p); return render(); }
+      const tm = t.closest('[data-theme-mode] button'); if (tm) { const th = await DB.getKV('theme', { mode: 'dark', ac: ACCENTS[0] }); th.mode = tm.dataset.v; await DB.setKV('theme', th); await applyTheme(); return render(); }
+      const ac = t.closest('[data-accent]'); if (ac) { const th = await DB.getKV('theme', { mode: 'dark', ac: ACCENTS[0] }); th.ac = ac.dataset.accent; await DB.setKV('theme', th); await applyTheme(); return render(); }
+      const dtab = t.closest('[data-dtab]'); if (dtab) { ui.dTab = dtab.dataset.dtab; return openDetail(ui.detail.id, $('#detail').scrollTop || 1); }
+      const dt = t.closest('[data-dt]'); if (dt) { if (dt.dataset.dt === 'sort') ui.dSort = ui.dSort === 'asc' ? 'desc' : 'asc'; else ui.dUnread = !ui.dUnread; return openDetail(ui.detail.id, $('#detail').scrollTop || 1); }
+      const sm = t.closest('[data-smode]'); if (sm) { const ser = await DB.get('series', ui.detail.id); ser.reader = { ...(ser.reader || {}), mode: sm.dataset.smode }; await DB.put('series', ser); toast('Se abrirá en modo ' + sm.querySelector('b').textContent); return openDetail(ui.detail.id, $('#detail').scrollTop || 1); }
+      const hr = t.closest('[data-hero]'); if (hr) { ui.hero = +hr.dataset.hero; heroTick(true); return updateHero(); }
+      const rl = t.closest('[data-rail]'); if (rl) { const [id, d] = rl.dataset.rail.split('|'); const r = $('#rail-' + id); r.scrollBy({ left: r.clientWidth * .8 * d, behavior: 'smooth' }); return; }
       const act = t.closest('[data-act]')?.dataset.act; if (!act) return;
       if (act === 'import') $('#importBtn').click();
       if (act === 'closeDetail') closeDetail();
+      if (act === 'clearQ') { ui.libQ = ''; $('#gq').value = ''; render(); }
       if (act === 'seriesMenu') seriesMenu();
       if (act === 'addAddon') addAddonSheet();
       if (act === 'clearDone') Downloads.clearDone();
@@ -525,6 +600,7 @@ const App = (() => {
     let st;
     document.addEventListener('input', e => {
       if (e.target.id === 'libQ') { ui.libQ = e.target.value; render(); }
+      if (e.target.id === 'gq') { ui.libQ = e.target.value; if (ui.view !== 'biblioteca') go('biblioteca').then(() => $('#gq').focus()); else render(); }
       if (e.target.id === 'exQ') { ui.exQ = e.target.value; clearTimeout(st); st = setTimeout(render, 300); }
     });
     document.addEventListener('change', e => { if (e.target.id === 'libSort') { ui.libSort = e.target.value; render(); } });
@@ -556,8 +632,20 @@ const App = (() => {
     importFiles(files);
   }
 
+  let heroT;
+  function updateHero() { const h = $('#hero'); if (h && ui.heroList?.length) h.outerHTML = heroHTML(ui.heroList); }
+  function heroTick(reset) {
+    clearInterval(heroT);
+    heroT = setInterval(() => {
+      if (ui.view !== 'inicio' || document.hidden || !$('#hero') || !$('#reader').hidden || !$('#player').hidden) return;
+      const n = $('#hero .dots')?.children.length || 0; if (n < 2) return;
+      ui.hero = (ui.hero + 1) % n; updateHero();
+    }, 8000);
+  }
   async function start() {
+    await applyTheme();
     bind();
+    heroTick();
     await Demo.seed();
     await go(ui.view);
     navStorage();
@@ -565,6 +653,6 @@ const App = (() => {
     if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => { });
   }
 
-  return { start, esc, toast, sheet, touch, saveProgress, adjacent, saveSeriesMode, parseName, importFiles };
+  return { start, esc, toast, sheet, touch, saveProgress, adjacent, saveSeriesMode, saveSeriesReader, parseName, importFiles };
 })();
 App.start();

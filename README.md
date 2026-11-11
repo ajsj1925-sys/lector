@@ -18,7 +18,7 @@ todo lo que añades o descargas se guarda en el navegador del dispositivo (Index
 | `js/zip.js` | Lee CBZ/ZIP sin librerías |
 | `js/demo.js` | Datos de ejemplo (borrables en Ajustes) |
 | `js/addons.js` | Add-ons y gestor de descargas |
-| `js/reader.js` | Lector de manga |
+| `js/reader.js` | Lector de manga (6 modos, ajustes por serie) |
 | `js/player.js` | Reproductor de anime |
 | `js/app.js` | Interfaz: vistas, ficha de serie, importar, ajustes |
 | `sw.js` | Sin conexión + recibir archivos desde "Compartir" (Android) |
