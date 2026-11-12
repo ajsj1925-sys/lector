@@ -3,6 +3,7 @@ const App = (() => {
   const $ = (s, r = document) => r.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const VERSION = '0.3.0';
+  const pl = (n, [one, many]) => `${n} ${n === 1 ? one : many}`;
   const DEF_LISTS = ['Leyendo', 'Pendiente', 'Favoritos', 'Abandonado'];
   const getLists = async () => DB.getKV('lists', DEF_LISTS);
   const TITLES = { inicio: 'Inicio', biblioteca: 'Biblioteca', explorar: 'Explorar', descargas: 'Descargas', ajustes: 'Ajustes' };
@@ -139,7 +140,10 @@ const App = (() => {
       const pending = lib.filter(s => !s.lastAt && s.items.length).sort((a, b) => b.addedAt - a.addedAt);
       const done = lib.filter(s => s.items.length && s.doneCount === s.items.length);
       const by = k => lib.filter(s => s.kind === k).sort((a, b) => (b.lastAt || b.addedAt) - (a.lastAt || a.addedAt));
+      const news = (await DB.getKV('news', [])).slice(0, 12);
+      const newsHTML = news.map(n => { const ser = lib.find(x => x.id === n.seriesId); return `<button class="cont" data-act="openNews" data-news="${esc(n.id)}"><div class="cv"><img src="${esc(ser?.cover || '')}" alt=""></div><div class="info"><b>${esc(n.title)}</b><div class="muted">${esc(n.sub)}</div><div class="tiny">${new Date(n.at).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}</div></div><span class="play">↓</span></button>`; });
       return heroHTML(heroList)
+        + railHTML('news', 'Novedades', newsHTML, true)
         + railHTML('cont', 'Continuar', cont.map(([s, it]) => contHTML(s, it)), true)
         + railHTML('new', 'Añadido recientemente', recent.map(s => cardHTML(s)))
         + railHTML('pend', 'Por empezar', pending.map(s => cardHTML(s)))
@@ -175,7 +179,7 @@ const App = (() => {
       const head = `<div class="toolbar">
         <input type="search" id="exQ" placeholder="Buscar en todos tus add-ons" value="${esc(ui.exQ)}" style="max-width:420px">
         <div class="chips" data-chips="exKind">${[['', 'Todo'], ['anime', 'Anime'], ['manga', 'Manga']].map(([k, l]) => `<button class="chip ${ui.exKind === k ? 'on' : ''}" data-v="${k}">${l}</button>`).join('')}</div></div>`;
-      const botRow = bots.length ? `<h2 class="sec">Tus bots de Telegram</h2><div class="list">${bots.map(b => `<div class="row"><div class="ico tg">${tgIcon}</div><div class="grow"><b>${esc(b.name)}</b><span class="tiny">${esc(b.bot)} · ${esc((b.kinds || []).join(', ') || 'anime y manga')}</span></div><button class="btn sm" data-bot="${esc(b.id)}">Pedir${ui.exQ ? ` "${esc(ui.exQ)}"` : ''}</button></div>`).join('')}</div>` : '';
+      const botRow = bots.length ? `<h2 class="sec">Tus bots de Telegram</h2><div class="list">${bots.map(b => `<div class="row"><div class="ico tg">${tgIcon}</div><div class="grow"><b>${esc(b.name)}</b><span class="tiny">${esc(b.bot)} · ${esc((b.kinds || []).join(', ') || 'anime y manga')}</span></div><button class="btn sm primary" data-bot="${esc(b.id)}">${ui.exQ ? `Pedir "${esc(ui.exQ)}"` : 'Abrir chat'}</button></div>`).join('')}</div>` : '';
       const res = await Addons.search(ui.exQ, ui.exKind);
       const blocks = res.map(({ addon, results, error }) => `<h2 class="sec">${esc(addon.name)} <span class="tiny">${error ? 'Error: ' + esc(error) : results.length + ' resultados'}</span></h2>
         ${results.length ? `<div class="grid">${results.map(r => cardHTML({ ...r, sourceName: addon.name, id: 'r:' + addon.id + ':' + r.id })).join('')}</div>` : ''}`).join('');
@@ -223,11 +227,17 @@ const App = (() => {
             <button class="btn sm ghost" data-remove="${esc(a.id)}" title="Quitar">✕</button></div>`).join('') || '<p class="muted">Sin add-ons.</p>'}</div>
           <p class="tiny" style="margin-top:8px">Formato para crear tus propios add-ons: docs/ADDONS.md en la carpeta del proyecto.</p></div>
 
-        <div class="panel"><h3>Cuenta de Telegram <span class="tiny">${tg.session ? 'Conectada' : 'Sin conectar'}</span></h3>
-          <p class="muted" style="margin-bottom:10px">Para pedir cosas a tus bots, Lector inicia sesión con tu cuenta (solo en este dispositivo). Las claves se sacan gratis en my.telegram.org → API development tools.</p>
+        <div class="panel"><h3>Cuenta de Telegram <span class="tiny">${tg.session ? '● Conectada' : 'Sin conectar'}</span></h3>
+          ${tg.session ? `<div class="row"><div class="ico tg">${tgIcon}</div><div class="grow"><b>${esc(tg.me?.name || 'Tu cuenta')}</b><span class="tiny">${esc(tg.me?.user ? '@' + tg.me.user : tg.me?.phone ? '+' + tg.me.phone : '')}</span></div><button class="btn sm" data-act="tgLogout">Cerrar sesión</button></div>
+          <p class="tiny" style="margin-top:8px">Abre un bot desde Explorar para hablar con él y descargar lo que te mande.</p>`
+          : `<p class="muted" style="margin-bottom:10px">Para hablar con tus bots y descargar lo que te manden, Lector inicia sesión con tu cuenta, solo en este dispositivo.</p>
+          <details class="howto"><summary>Cómo sacar api_id y api_hash (gratis, 2 minutos)</summary><ol>
+            <li>Entra en <a href="https://my.telegram.org" target="_blank" rel="noopener">my.telegram.org</a> con tu número.</li>
+            <li>Pulsa <b>API development tools</b>.</li><li>Rellena "App title" (ej. Lector) y "Short name" (ej. lector). Lo demás puede ir vacío.</li>
+            <li>Copia <b>App api_id</b> y <b>App api_hash</b> aquí abajo.</li></ol></details>
           <div class="field"><label>api_id</label><input id="tgId" inputmode="numeric" value="${esc(tg.apiId || '')}" placeholder="1234567"></div>
           <div class="field"><label>api_hash</label><input id="tgHash" value="${esc(tg.apiHash || '')}" placeholder="0123456789abcdef…"></div>
-          <div class="chips"><button class="btn" data-act="saveTg">Guardar claves</button><button class="btn primary" data-act="tgLogin">Iniciar sesión</button></div></div>
+          <div class="chips"><button class="btn" data-act="saveTg">Guardar</button><button class="btn primary" data-act="tgLogin">Iniciar sesión</button></div>`}</div>
 
         <div class="panel"><h3>Apariencia</h3>
           <div class="kv"><span>Tema</span><div class="seg" data-theme-mode>${[['dark', 'Oscuro'], ['amoled', 'Negro puro'], ['light', 'Claro']].map(([k, l]) => `<button data-v="${k}" class="${theme.mode === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
@@ -300,7 +310,7 @@ const App = (() => {
     if (s.kind === 'manga' && !remote) tabs.push(['read', 'Lectura']);
     const rmode = s.reader?.mode || ({ vertical: 'webtoon' }[s.mode] || s.mode) || (await DB.getKV('readerPrefs', {})).mode || 'rtl';
     let body = '';
-    if (ui.dTab === 'eps') body = `<div class="d-tools"><span class="tiny">${list.length} ${unit[1]}</span>
+    if (ui.dTab === 'eps') body = `<div class="d-tools"><span class="tiny">${pl(list.length, unit)}</span>
         <button class="chip ${ui.dUnread ? 'on' : ''}" data-dt="unread">Sin ${s.kind === 'anime' ? 'ver' : 'leer'}</button>
         <button class="chip" data-dt="sort" title="Orden">${ui.dSort === 'asc' ? '1 → 9' : '9 → 1'}</button></div>${items}`;
     const lists = await getLists(), m = s.meta || {};
@@ -325,7 +335,7 @@ const App = (() => {
       <button class="d-close" data-act="closeDetail" title="Cerrar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       <div class="d-head"><div class="cv"><img src="${esc(s.cover)}" alt="">${tag(s.kind)}</div>
         <div style="min-width:0;padding-right:28px"><h2>${esc(s.title)}</h2>
-        <div class="d-meta"><span>${s.items.length} ${unit[1]}</span>${remote ? `<span>${esc(remote.name)}</span>` : `<span>${Math.round(pct * 100)} % ${unit[2]}</span>${s.size ? `<span>${fmtSize(s.size)}</span>` : ''}`}</div></div></div>
+        <div class="d-meta"><span>${pl(s.items.length, unit)}</span>${remote ? `<span>${esc(remote.name)}</span>` : `<span>${Math.round(pct * 100)} % ${unit[2]}</span>${s.size ? `<span>${fmtSize(s.size)}</span>` : ''}`}</div></div></div>
       <div class="d-actions">
         ${remote ? `<button class="btn primary" data-act="dlAll"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Descargar todo</button><button class="btn" data-item="r1">${verb} online</button>`
                  : `${cur ? `<button class="btn primary" data-item="${esc(cur.id)}">${playIco}${cur.pos || cur.lastAt ? 'Continuar' : verb} · ${esc(cur.title)}</button>` : `<button class="btn primary" data-item="${esc(s.items[0]?.id)}">${playIco}${verb} de nuevo</button>`}
@@ -459,11 +469,13 @@ const App = (() => {
     });
   }
 
-  function botSheet(id) {
-    DB.get('addons', id).then(b => sheet(`<h3>${esc(b.name)}</h3>
-      <p class="muted">Aquí podrás escribirle a ${esc(b.bot)} sin salir de Lector: lo que te mande (vídeos, CBZ, imágenes) entrará directo en tu biblioteca.</p>
-      <div class="note">Falta un paso: conectar tu cuenta de Telegram (Ajustes → Cuenta de Telegram) y que me pases los comandos de tus bots. Mientras tanto, puedes descargar el archivo en Telegram y añadirlo con el botón "Añadir".</div>
-      <div class="acts"><button class="btn" data-close>Cerrar</button><button class="btn primary" data-close data-go="ajustes">Ir a Ajustes</button></div>`));
+  async function botSheet(id) {
+    const b = await DB.get('addons', id);
+    if (!(await Tg.ready())) return sheet(`<h3>${esc(b.name)}</h3>
+      <p class="muted">Para hablar con ${esc(b.bot)} desde aquí, inicia sesión con tu cuenta de Telegram una vez. Lo que te mande el bot (vídeos, CBZ, PDF, imágenes) entra directo en tu biblioteca.</p>
+      <div class="acts"><button class="btn" data-close>Cerrar</button><button class="btn primary" data-close data-go="ajustes">Ir a Ajustes</button></div>`);
+    const q = ui.exQ.trim();
+    Tg.openChat(b, q ? (b.commands?.search ? b.commands.search.replace('{q}', q) : q) : '');
   }
 
   /* ---------- importar archivos ---------- */
@@ -682,8 +694,14 @@ const App = (() => {
       if (act === 'saveTg' || act === 'tgLogin') {
         const tgv = { ...(await DB.getKV('telegram', {})), apiId: $('#tgId').value.trim(), apiHash: $('#tgHash').value.trim() };
         await DB.setKV('telegram', tgv);
-        toast(act === 'saveTg' ? 'Claves guardadas en este dispositivo' : 'El inicio de sesión con Telegram llega en el siguiente paso');
+        if (act === 'saveTg') return toast('Guardado en este dispositivo');
+        if (!tgv.apiId || !tgv.apiHash) return toast('Escribe primero api_id y api_hash');
+        progress('Conectando con Telegram…');
+        try { await Tg.connect({ interactive: true }); toast('Sesión iniciada en Telegram'); } catch (e) { toast(e.message); }
+        return render();
       }
+      if (act === 'tgLogout') { if (!(await confirmSheet('¿Cerrar la sesión de Telegram en este dispositivo?', 'Cerrar sesión'))) return; await Tg.logout(); toast('Sesión cerrada'); return render(); }
+      if (act === 'openNews') { const n = (await DB.getKV('news', [])).find(x => x.id === t.closest('[data-news]').dataset.news); if (!n) return; await Notify.dismiss(n.id); if (n.bot) { const a = await DB.get('addons', n.bot); if (a) Tg.openChat(a); } else if (n.remote) openDetail(n.remote); else openDetail(n.seriesId); return render(); }
     });
 
     let st;
@@ -739,11 +757,27 @@ const App = (() => {
     if (!(await DB.getKV('v3'))) { await Demo.clear(); await DB.setKV('v3', true); await DB.setKV('demoSeeded', true); }
     await go(ui.view);
     Space.persist();
+    Notify.startLoop(() => { if (ui.view === 'inicio') render(); });
+    const doSync = () => Tg.sync().then(r => { if (r && /actualizados/.test(r) && !/ 0 cap/.test(r)) { toast(r); refresh(); } }).catch(() => { });
+    setTimeout(doSync, 3000);
+    let lastPush = 0;
+    document.addEventListener('visibilitychange', () => { if (document.hidden && Date.now() - lastPush > 5 * 60 * 1000) { lastPush = Date.now(); doSync(); } });
     navStorage();
     takeShared();
     if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => { });
   }
 
-  return { start, esc, toast, progress, convertVideo, fmtSize, sheet, touch, saveProgress, adjacent, saveSeriesMode, saveSeriesReader, parseName, importFiles };
+  async function setCover(seriesId, blob, kind, name = '') {
+    let c = null;
+    try {
+      if (kind === 'anime') c = await videoThumb(new File([blob], name || 'v.mp4', { type: blob.type || 'video/mp4' }));
+      else if (blob.type.startsWith('image/')) c = await thumb(blob);
+      else { const pg = await Formats.pages(blob, name); if (pg[0]) c = await thumb(await pg[0].load()); }
+    } catch { }
+    if (!c) return;
+    const s = await DB.get('series', seriesId); if (!s || s.realCover) return;
+    s.cover = c; s.realCover = true; await DB.put('series', s);
+  }
+  return { start, refresh, setCover, esc, toast, progress, convertVideo, fmtSize, sheet, touch, saveProgress, adjacent, saveSeriesMode, saveSeriesReader, parseName, importFiles };
 })();
 App.start();

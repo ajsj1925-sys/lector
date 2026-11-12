@@ -103,7 +103,11 @@ const Downloads = (() => {
     }
   }
 
+  /* Trabajo con su propio "runner" (lo usa Telegram) */
+  function add(job) { if (jobs.some(x => x.id === job.id && x.state !== 'error')) return; jobs.push({ got: 0, state: 'cola', ...job }); emit(); pump(); }
+
   async function run(j) {
+    if (j.runner) return j.runner(j);
     const base = { id: j.id, seriesId: j.sid, num: j.it.num, title: j.it.title, kind: j.s.kind, pos: 0, done: false, lastAt: 0 };
     if (j.it.demo) {
       // Simulación para el catálogo de ejemplo
@@ -151,5 +155,5 @@ const Downloads = (() => {
   function clearDone() { for (let i = jobs.length - 1; i >= 0; i--) if (jobs[i].state === 'hecho') jobs.splice(i, 1); emit(); }
   function cancel(id) { const i = jobs.findIndex(j => j.id === id && j.state === 'cola'); if (i >= 0) jobs.splice(i, 1); emit(); }
 
-  return { jobs, on, enqueue, active, clearDone, cancel, saveDownloaded, emit, pump };
+  return { jobs, on, add, enqueue, active, clearDone, cancel, saveDownloaded, emit, pump };
 })();

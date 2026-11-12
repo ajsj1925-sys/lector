@@ -1,11 +1,13 @@
 /* Lector · service worker: funciona sin conexión y recibe archivos compartidos (Android). */
 importScripts('js/db.js');
-const CACHE = 'lector-v0.2.0';
-const SHELL = ['./', 'index.html', 'css/app.css', 'js/db.js', 'js/zip.js', 'js/demo.js', 'js/addons.js', 'js/reader.js', 'js/player.js', 'js/app.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
+const CACHE = 'lector-v0.3.0';
+const LIBS = 'lector-libs-v1'; // librerías externas (Telegram), versionadas: se guardan para usarlas sin conexión
+const SHELL = ['./', 'index.html', 'css/app.css', 'js/db.js', 'js/zip.js', 'js/demo.js', 'js/addons.js', 'js/reader.js', 'js/player.js', 'js/app.js', 'js/formats.js', 'js/subs.js', 'js/mkv.js', 'js/space.js', 'js/meta.js', 'js/backup.js', 'js/tg.js', 'js/notify.js',
+  'vendor/pdfjs/pdf.min.js', 'vendor/pdfjs/pdf.worker.min.js', 'vendor/libarchive/libarchive.js', 'vendor/libarchive/worker-bundle.js', 'vendor/libarchive/libarchive.wasm', 'vendor/mp4-muxer.min.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL))); self.skipWaiting(); });
 self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE && k !== LIBS).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
 
 self.addEventListener('fetch', e => {
@@ -23,6 +25,10 @@ self.addEventListener('fetch', e => {
       await DB.setKV('shared', keys);
       return Response.redirect('./?share=1', 303);
     })());
+    return;
+  }
+  if (e.request.method === 'GET' && url.hostname === 'esm.sh') {
+    e.respondWith(caches.open(LIBS).then(async c => (await c.match(e.request)) || fetch(e.request).then(r => { if (r.ok) c.put(e.request, r.clone()); return r; })));
     return;
   }
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
