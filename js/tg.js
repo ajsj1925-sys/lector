@@ -21,9 +21,11 @@ const Tg = (() => {
   async function load() {
     if (mod) return mod;
     try {
+      // GramJS usa "Buffer" (de Node) como variable global: hay que ponerlo antes de cargarlo
+      const { Buffer } = await import('https://esm.sh/buffer@6.0.3');
+      globalThis.Buffer ||= Buffer;
       const [m, s] = await Promise.all([import(BASE), import(BASE + '/sessions')]);
-      mod = { ...m, StringSession: s.StringSession };
-      mod.Buffer = m.helpers.generateRandomBytes(1).constructor; // el Buffer que usa GramJS en el navegador
+      mod = { ...m, StringSession: s.StringSession, Buffer };
       return mod;
     } catch (e) { throw new Error('No se pudo cargar Telegram (¿sin conexión?): ' + e.message); }
   }

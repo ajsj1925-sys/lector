@@ -16,6 +16,15 @@ todo lo que añades o descargas se guarda en el navegador del dispositivo (Index
 | `css/app.css` | Estilos (PC: barra lateral · tablet: barra estrecha · móvil: barra abajo) |
 | `js/db.js` | Almacenamiento local (IndexedDB) |
 | `js/zip.js` | Lee CBZ/ZIP sin librerías |
+| `js/formats.js` | PDF, EPUB, CBR/RAR, 7Z, CBT (detecta por contenido) |
+| `js/subs.js` | Subtítulos SRT/ASS → WebVTT |
+| `js/mkv.js` | MKV → MP4 sin recodificar + subtítulos internos |
+| `js/tg.js` | Telegram con tu cuenta: login, chat con bots, descargas, sincronizar |
+| `js/notify.js` | Avisos de capítulos nuevos |
+| `js/meta.js` | Información de AniList |
+| `js/backup.js` | Copia de seguridad y mezcla de progreso |
+| `js/space.js` | Espacio del dispositivo y diagnóstico |
+| `vendor/` | pdf.js, libarchive.js (WASM), mp4-muxer |
 | `js/demo.js` | Datos de ejemplo (borrables en Ajustes) |
 | `js/addons.js` | Add-ons y gestor de descargas |
 | `js/reader.js` | Lector de manga (6 modos, ajustes por serie) |

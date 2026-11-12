@@ -99,9 +99,32 @@ tema claro, toque lateral en móvil. Sin errores de consola.
 - Para actualizar: hacer commit y `git push origin main` **y** `git push origin main:gh-pages`.
 - Al publicar una versión nueva, subir `CACHE` en `sw.js` (p. ej. `lector-v0.2.1`) para que los móviles la descarguen.
 
-## Pendiente (siguiente pasos, en orden)
-2. **Telegram**: iniciar sesión con GramJS en el navegador (número + código), elegir bot, mandar comando,
-   recibir el archivo y descargarlo a la biblioteca. Necesita los **comandos de los bots** del usuario.
-3. Ver online (sin descargar) para add-ons de streaming reales.
-4. Formatos que faltan: **PDF** (pdf.js), **EPUB**, **CBR** (RAR, necesita librería), subtítulos **.ass**.
-5. Exportar/importar progreso entre dispositivos (archivo), opcional.
+## 2026-11-12 · v0.3.0 · Los 14 puntos pendientes
+**Petición:** el usuario pidió hacer las 14 mejoras de la lista ("A todas. A las 14"). Se hicieron todas.
+
+| # | Qué | Cómo (archivos) |
+|---|---|---|
+| 1 | **Telegram desde la app** | `js/tg.js`. GramJS cargado al usarlo desde `esm.sh/telegram@2.26.22` (+ `esm.sh/buffer@6.0.3` puesto como `globalThis.Buffer`, si no falla). Login con número → código → contraseña 2FA (`client.start`). Sesión (`StringSession`) en `kv.telegram`. Chat genérico con cualquier bot: texto, comandos, botones inline (`msg.click({i,j})`), teclados de respuesta, refresco cada 3 s. "Descargar" usa `client.iterDownload` por trozos de 512 KB (no carga 1 GB en RAM) y guarda en la biblioteca; álbumes de fotos → un capítulo. No hacen falta los comandos de los bots: el chat sirve para cualquiera. |
+| 2 | PDF, EPUB, CBR/RAR, 7Z, CBT | `js/formats.js` detecta el formato por los primeros bytes. PDF con pdf.js (`vendor/pdfjs`), EPUB propio (lee OPF y spine), RAR/7z/TAR con libarchive.js WASM (`vendor/libarchive`). |
+| 3 | Subtítulos .ass/.ssa | `js/subs.js` los pasa a WebVTT (sin estilos avanzados; respeta arriba/abajo). |
+| 4 | MKV en iPhone/iPad | `js/mkv.js`: demuxer EBML propio + `vendor/mp4-muxer.min.js`. Copia vídeo (H.264/H.265/VP9/AV1) y audio (AAC/Opus) sin recodificar, calcula DTS con B-frames, añade edit list (elst) para que audio y vídeo queden sincronizados, extrae subtítulos internos. Al añadir un MKV se convierte siempre (así hay subtítulos internos en todos los dispositivos). Si el audio es AC3/FLAC/DTS no se puede (aviso). |
+| 5 | Ver online | Add-ons de streaming: `url` (vídeo o cbz) o `pages` (imágenes) se abren sin descargar. |
+| 6 | Sincronizar progreso | `js/backup.js` + `Tg.sync()`: sube `lector-sync.json` a "Mensajes guardados" (#lector-sync) y lee el último; por capítulo gana el `lastAt` más reciente. Al abrir la app y al salir (cada 5 min máx.). |
+| 7 | Avisos de capítulos nuevos | `js/notify.js`: interruptor "Avisarme" en la ficha. Revisa bots (archivos cuyo nombre encaja con la serie) y streaming al abrir y cada 20 min. Fila "Novedades" en Inicio + notificación del sistema. Sin servidor no avisa con la app cerrada. |
+| 8 | Copia de seguridad | Ajustes → Exportar/Importar copia (.json, sin los archivos pesados). |
+| 9 | Reproductor con gestos | `js/player.js` reescrito: controles propios, doble toque ±10 s, arrastrar para avanzar, brillo (izq.) y volumen (dcha.), mantener = 2×, "Saltar opening" (80/85/90 s), tamaño de subtítulos, pistas, añadir subtítulo, PiP, siguiente automático. Si un MKV falla, botón "Convertir a MP4". |
+| 10 | Listas, valoración, notas | Listas editables (Leyendo, Pendiente, Favoritos, Abandonado…), 5 estrellas, notas; filtro por lista y orden por valoración; fila Favoritos en Inicio. |
+| 11 | Información automática | `js/meta.js`: AniList GraphQL (sin cuenta). Al añadir busca solo si el título coincide; también a mano desde la ficha. Guarda portada y banner reducidos (funcionan sin conexión). |
+| 12 | Datos de ejemplo | Ya no se cargan; se borran al actualizar (kv `v3`). Se pueden cargar desde Ajustes. |
+| 13 | Probar en móvil real | Ajustes → **Diagnóstico**: dice qué funciona en ese dispositivo (instalada, espacio, HEVC, MKV, notificaciones…). |
+| 14 | Espacio en iPhone | `js/space.js`: comprueba espacio antes de guardar; opción "borrar lo ya visto si falta espacio"; botón liberar; pide almacenamiento persistente. |
+
+**Probado** (Playwright, local): PDF, EPUB, CBT, RAR v5, 7z y ASS; MKV H.264+B-frames+AAC+ASS y MKV HEVC+Opus → MP4 válido (ffmpeg decodifica sin errores, tiempos idénticos al original); importación, reproductor (pistas, doble toque), listas, estrellas, notas, exportar copia en un "PC" e importarla en un "iPhone" (progreso y "No está en este dispositivo"). En el navegador real (web publicada): GramJS carga y funciona con el `Buffer` global. **No probado**: iniciar sesión real en Telegram (necesita las claves y el código del usuario).
+
+**Librerías incluidas** (`vendor/`, con sus licencias): pdf.js 3.2.146 (Apache-2.0), libarchive.js (MIT), mp4-muxer (MIT). Externas al usarlas: GramJS 2.26.22 y buffer 6.0.3 vía esm.sh (el service worker las guarda para usarlas sin conexión).
+
+## Pendiente
+1. Que el usuario saque api_id/api_hash en my.telegram.org, inicie sesión en Ajustes y pruebe sus bots (si algo falla, mirar la consola del navegador).
+2. Probar en su Android, iPhone y iPad (Ajustes → Diagnóstico) y ajustar lo que salga.
+3. EPUB de solo texto (novelas ligeras): no soportado.
+4. Avisos con la app cerrada: necesitaría un servidor (no se quiere).

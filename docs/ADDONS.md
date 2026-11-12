@@ -21,8 +21,9 @@ Uno de tus bots. Se crea desde el formulario de la app (no hace falta JSON), per
 - `kinds`: qué manda (`anime`, `manga` o ambos).
 - `commands.search`: comando para buscar; `{q}` se cambia por lo que escribas. Vacío = se manda el texto tal cual.
 
-> Estado (v0.1.0): se guardan y aparecen en Explorar. Falta conectar la cuenta de Telegram (MTProto con la librería GramJS)
-> y los comandos reales de cada bot.
+> Desde v0.3.0: en Explorar → "Abrir chat" hablas con el bot dentro de Lector (texto, comandos, botones)
+> y cada archivo que mande tiene un botón "Descargar" que lo mete en la biblioteca. `commands.search` solo sirve
+> para rellenar el mensaje cuando buscas algo en Explorar.
 
 ## 2. Streaming (`"type": "streaming"`)
 
@@ -58,6 +59,6 @@ Para manga, cada elemento puede traer `"pages": ["https://…/1.jpg", "https://�
 o una `url` a un `.cbz`.
 
 Al pulsar **Descargar**, Lector baja el archivo y lo guarda en el dispositivo.
-**Ver online** sin descargar: pendiente para fuentes reales (funciona con el catálogo de ejemplo).
+**Ver online** sin descargar: con `url` (vídeo o .cbz) o `pages` (lista de imágenes).
 
 Solo para contenido que tengas derecho a usar (tuyo, libre o con licencia).
