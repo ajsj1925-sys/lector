@@ -126,14 +126,30 @@ const Downloads = (() => {
     j.total = +r.headers.get('content-length') || j.total;
     const reader = r.body.getReader(); const chunks = [];
     for (;;) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); j.got += value.length; emit(); }
-    const blob = new Blob(chunks, { type: j.it.type || r.headers.get('content-type') || '' });
+    let blob = new Blob(chunks, { type: j.it.type || r.headers.get('content-type') || '' });
+    return saveDownloaded(j, base, blob, j.it.name || (j.it.url || '').split('/').pop().split('?')[0] || j.it.title);
+  }
+
+  /* Guarda un archivo bajado (de streaming o de Telegram): comprueba espacio, convierte MKV y detecta el formato */
+  async function saveDownloaded(j, base, blob, name) {
+    if (!(await Space.ensure(blob.size))) throw new Error('No hay espacio en el dispositivo');
     const key = 'f-' + j.id;
-    await DB.put('files', { key, blob, name: j.it.title, type: blob.type });
-    await DB.put('items', { ...base, fileKey: key, size: blob.size, total: 0 });
+    if (j.s.kind === 'anime') {
+      j.sub = 'Preparando vídeo…'; emit();
+      const v = await App.convertVideo(new File([blob], name, { type: blob.type }), j.title);
+      const subKeys = [];
+      for (const [i, sb] of v.subs.entries()) { const sk = key + '-s' + i; await DB.put('files', { key: sk, blob: sb.blob, name: sb.name, type: 'text/vtt' }); subKeys.push(sk); }
+      await DB.put('files', { key, blob: v.blob, name: v.name, type: v.blob.type });
+      await DB.put('items', { ...base, fileKey: key, size: v.blob.size, total: 0, subKeys, convErr: v.err });
+    } else {
+      await DB.put('files', { key, blob, name, type: blob.type || 'application/octet-stream' });
+      let total = 0; try { total = (await Formats.pages(blob, name)).length; } catch { }
+      await DB.put('items', { ...base, fileKey: key, size: blob.size, total });
+    }
   }
 
   function clearDone() { for (let i = jobs.length - 1; i >= 0; i--) if (jobs[i].state === 'hecho') jobs.splice(i, 1); emit(); }
   function cancel(id) { const i = jobs.findIndex(j => j.id === id && j.state === 'cola'); if (i >= 0) jobs.splice(i, 1); emit(); }
 
-  return { jobs, on, enqueue, active, clearDone, cancel };
+  return { jobs, on, enqueue, active, clearDone, cancel, saveDownloaded, emit, pump };
 })();

@@ -34,14 +34,16 @@ const Reader = (() => {
       const tall = (series.reader?.mode || series.mode) === 'webtoon' || series.mode === 'vertical';
       return Array.from({ length: item.total }, (_, i) => ({ load: async () => Demo.page(series.title, item.num, i + 1, item.total, series.hue || 200, tall) }));
     }
+    if (item.pages) return item.pages.map(u => ({ load: async () => u })); // ver online
+    if (item.url) { const b = await (await fetch(item.url)).blob(); return (await Formats.pages(b, item.url)).map(p => ({ load: async () => URL.createObjectURL(await p.load()) })); }
     if (item.pageKeys) return item.pageKeys.map(k => ({ load: async () => URL.createObjectURL((await DB.get('files', k)).blob) }));
     if (item.fileKey) {
       const f = await DB.get('files', item.fileKey);
       if (!f) throw new Error('El archivo ya no está en este dispositivo');
       if (f.type.startsWith('image/')) return [{ load: async () => URL.createObjectURL(f.blob) }];
-      return (await Zip.pages(f.blob)).map(p => ({ load: async () => URL.createObjectURL(await p.load()) }));
+      return (await Formats.pages(f.blob, f.name)).map(p => ({ load: async () => URL.createObjectURL(await p.load()) }));
     }
-    throw new Error('Formato no soportado todavía');
+    throw new Error(item.remote || item.removed ? 'Este capítulo no está descargado en este dispositivo.' : 'Formato no soportado todavía');
   }
   const loadImg = url => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('No se pudo abrir una página')); im.src = url; });
 

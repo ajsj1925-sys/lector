@@ -56,5 +56,10 @@ const Zip = (() => {
     return list.map(e => ({ name: e.name, load: () => extract(blob, e) }));
   }
 
-  return { pages, natural };
+  /* Todas las entradas (para EPUB): {name, load()} */
+  async function list(blob) {
+    return (await entries(blob)).filter(e => !e.name.endsWith('/')).map(e => ({ name: e.name, load: () => extract(blob, e) }));
+  }
+
+  return { pages, list, natural, IMG };
 })();

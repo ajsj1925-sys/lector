@@ -2,15 +2,26 @@
 const App = (() => {
   const $ = (s, r = document) => r.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const VERSION = '0.2.0';
+  const VERSION = '0.3.0';
+  const DEF_LISTS = ['Leyendo', 'Pendiente', 'Favoritos', 'Abandonado'];
+  const getLists = async () => DB.getKV('lists', DEF_LISTS);
   const TITLES = { inicio: 'Inicio', biblioteca: 'Biblioteca', explorar: 'Explorar', descargas: 'Descargas', ajustes: 'Ajustes' };
-  const ui = { view: 'inicio', libKind: 'all', libSort: 'recent', libQ: '', exKind: '', exQ: '', detail: null, dTab: 'eps', dSort: 'asc', dUnread: false, hero: 0 };
+  const ui = { view: 'inicio', libKind: 'all', libSort: 'recent', libQ: '', exKind: '', exQ: '', detail: null, dTab: 'eps', dSort: 'asc', dUnread: false, hero: 0, libList: '' };
   const ACCENTS = ['#ff7a45', '#f43f5e', '#ec4899', '#8b5cf6', '#3b82f6', '#06b6d4', '#10b981', '#f59e0b'];
 
   /* ---------- utilidades ---------- */
   function fmtSize(b) { if (!b) return '0 MB'; const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0; while (b >= 1024 && i < 4) { b /= 1024; i++; } return b.toFixed(i > 2 ? 1 : 0) + ' ' + u[i]; }
   function fmtTime(s) { s = Math.round(s); const m = Math.floor(s / 60), h = Math.floor(m / 60); return h ? `${h}:${String(m % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` : `${m}:${String(s % 60).padStart(2, '0')}`; }
-  let tt; function toast(m) { const t = $('#toast'); t.textContent = m; t.classList.add('on'); clearTimeout(tt); tt = setTimeout(() => t.classList.remove('on'), 2600); }
+  let tt; function toast(m, sticky) { const t = $('#toast'); t.textContent = m; t.classList.add('on'); clearTimeout(tt); if (!sticky) tt = setTimeout(() => t.classList.remove('on'), 2600); }
+  const progress = m => toast(m, true);
+  /* MKV → MP4 (+ subtítulos internos). Devuelve { blob, name, subs:[{name, blob}] } o el original si no se puede */
+  async function convertVideo(f, label = f.name) {
+    if (!Mkv.isMkv(f.name, f.type)) return { blob: f, name: f.name, subs: [] };
+    try {
+      const r = await Mkv.toMp4(f, p => progress(`Convirtiendo ${label} a MP4… ${Math.round(p * 100)} %`));
+      return { blob: r.mp4, name: f.name.replace(/\.mkv$/i, '.mp4'), subs: r.subs.map(x => ({ name: x.name + '.vtt', blob: new Blob([x.vtt], { type: 'text/vtt' }), def: x.def })), converted: true };
+    } catch (e) { return { blob: f, name: f.name, subs: [], err: e.message }; }
+  }
   const hueOf = s => [...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7);
   const norm = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 
@@ -103,7 +114,7 @@ const App = (() => {
     const i = ui.hero % list.length, [s, it] = list[i];
     const frac = it.total ? Math.min(1, it.pos / it.total) : 0;
     const verb = s.kind === 'anime' ? 'Ver' : 'Leer';
-    return `<section class="hero" id="hero"><div class="hero-bg" style="background-image:url(&quot;${esc(s.cover)}&quot;)"></div>
+    return `<section class="hero" id="hero"><div class="hero-bg ${s.banner ? 'sharp' : ''}" style="background-image:url(&quot;${esc(s.banner || s.cover)}&quot;)"></div>
       <div class="hero-in" data-k="${i}"><div class="cv"><img src="${esc(s.cover)}" alt=""></div>
         <div class="hero-txt"><div class="kicker">${it.pos || it.lastAt ? 'Continuar ' + (s.kind === 'anime' ? 'viendo' : 'leyendo') : 'Empieza'}</div>
           <h2>${esc(s.title)}</h2>
@@ -134,6 +145,7 @@ const App = (() => {
         + railHTML('pend', 'Por empezar', pending.map(s => cardHTML(s)))
         + railHTML('anime', 'Anime', by('anime').map(s => cardHTML(s)))
         + railHTML('manga', 'Manga', by('manga').map(s => cardHTML(s)))
+        + railHTML('fav', 'Favoritos', lib.filter(s => (s.lists || []).includes('Favoritos')).map(s => cardHTML(s)))
         + railHTML('done', 'Terminados', done.map(s => cardHTML(s)));
     },
 
@@ -141,15 +153,19 @@ const App = (() => {
       let lib = await libraryData();
       if (!lib.length) return emptyLib();
       if (ui.libKind !== 'all') lib = lib.filter(s => s.kind === ui.libKind);
-      if (ui.libQ) lib = lib.filter(s => norm(s.title).includes(norm(ui.libQ)));
+      if (ui.libQ) lib = lib.filter(s => norm(s.title).includes(norm(ui.libQ)) || (s.meta?.genres || []).some(g => norm(g).includes(norm(ui.libQ))));
+      if (ui.libList) lib = lib.filter(s => (s.lists || []).includes(ui.libList));
+      const lists = await getLists();
       const sorters = { recent: (a, b) => (b.lastAt || b.addedAt) - (a.lastAt || a.addedAt), az: (a, b) => a.title.localeCompare(b.title), added: (a, b) => b.addedAt - a.addedAt };
+      sorters.rating = (a, b) => (b.rating || 0) - (a.rating || 0);
       lib.sort(sorters[ui.libSort]);
       return `<div class="toolbar">
           <div class="chips" data-chips="libKind">${[['all', 'Todo'], ['anime', 'Anime'], ['manga', 'Manga']].map(([k, l]) => `<button class="chip ${ui.libKind === k ? 'on' : ''}" data-v="${k}">${l}</button>`).join('')}</div>
           ${ui.libQ ? `<button class="chip on" data-act="clearQ">“${esc(ui.libQ)}” ✕</button>` : ''}
-          <select id="libSort" style="width:auto">${[['recent', 'Última actividad'], ['added', 'Añadido'], ['az', 'A–Z']].map(([k, l]) => `<option value="${k}" ${ui.libSort === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+          <select id="libSort" style="width:auto">${[['recent', 'Última actividad'], ['added', 'Añadido'], ['az', 'A–Z'], ['rating', 'Mi valoración']].map(([k, l]) => `<option value="${k}" ${ui.libSort === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
         </div>
-        ${lib.length ? `<div class="grid">${lib.map(s => cardHTML(s)).join('')}</div>` : `<p class="muted">Nada coincide con la búsqueda.</p>`}`;
+        <div class="chips lists" data-chips="libList"><span class="tiny">Listas:</span><button class="chip ${!ui.libList ? 'on' : ''}" data-v="">Todas</button>${lists.map(l => `<button class="chip ${ui.libList === l ? 'on' : ''}" data-v="${esc(l)}">${esc(l)}</button>`).join('')}<button class="chip ghost" data-act="editLists">✎ Editar</button></div>
+        ${lib.length ? `<div class="grid">${lib.map(s => cardHTML(s)).join('')}</div>` : `<p class="muted">Nada coincide.</p>`}`;
     },
 
     async explorar() {
@@ -197,6 +213,8 @@ const App = (() => {
       const rp = await DB.getKV('readerPrefs', {});
       const theme = await DB.getKV('theme', { mode: 'dark', ac: ACCENTS[0] });
       const hasDemo = (await DB.all('series')).some(s => s.demo);
+      const autoClean = await DB.getKV('autoClean', false), autoMeta = await DB.getKV('autoMeta', true);
+      const sp = await Space.info();
       const icon = a => a.type === 'telegram' ? `<div class="ico tg">${tgIcon}</div>` : `<div class="ico st"><svg viewBox="0 0 24 24"><path d="M3 6h18v12H3z"/><path d="M10 9l5 3-5 3z"/></svg></div>`;
       return `<div class="cols">
         <div class="panel"><h3>Add-ons <button class="btn sm primary" data-act="addAddon">+ Añadir</button></h3>
@@ -223,8 +241,21 @@ const App = (() => {
         <div class="panel"><h3>App</h3>
           <div class="kv"><span>Versión</span><span class="muted">${VERSION}</span></div>
           <div class="kv"><span>Instalar en este dispositivo</span>${installBtn()}</div>
-          <div class="kv"><span>Datos de ejemplo</span>${hasDemo ? '<button class="btn sm" data-act="clearDemo">Quitar</button>' : '<button class="btn sm" data-act="addDemo">Volver a cargar</button>'}</div>
-          <div class="kv"><span>Formatos</span><span class="tiny" style="text-align:right">Manga: CBZ, ZIP, imágenes, carpetas<br>Anime: MP4, WebM, MKV* + .srt/.vtt</span></div></div>
+          <div class="kv"><span>Series de ejemplo</span>${hasDemo ? '<button class="btn sm" data-act="clearDemo">Quitar</button>' : '<button class="btn sm" data-act="addDemo">Cargar para probar</button>'}</div>
+          <div class="kv"><span>Comprobar este dispositivo<small>Qué funciona aquí (vídeo, espacio, notificaciones…)</small></span><button class="btn sm" data-act="diag">Diagnóstico</button></div>
+          <div class="kv"><span>Formatos</span><span class="tiny" style="text-align:right">Manga: CBZ, CBR, RAR, ZIP, 7Z, CBT, PDF, EPUB, imágenes, carpetas<br>Anime: MP4, MKV (se pasa a MP4), WebM + .srt/.ass/.vtt</span></div></div>
+
+        <div class="panel"><h3>Copia de seguridad y sincronizar</h3>
+          <p class="tiny" style="margin-bottom:8px">Guarda tu biblioteca, progreso, listas, notas y ajustes (no los vídeos ni mangas). Importarla en otro dispositivo junta el progreso: en cada capítulo gana lo último que hiciste.</p>
+          <div class="chips"><button class="btn sm" data-act="exportBk">Exportar copia</button><button class="btn sm" data-act="importBk">Importar copia</button></div>
+          <div class="kv" style="margin-top:6px"><span>Sincronizar por Telegram<small>Guarda la copia en tus "Mensajes guardados" y la lee en los demás dispositivos</small></span><button class="switch ${tg.sync ? 'on' : ''}" data-act="tgSync"></button></div>
+          ${tg.lastSync ? `<p class="tiny">Última sincronización: ${new Date(tg.lastSync).toLocaleString('es-ES')}</p>` : ''}</div>
+
+        <div class="panel"><h3>Espacio</h3>
+          ${sp && sp.quota ? `<div class="kv"><span>Usado</span><b>${fmtSize(sp.usage)} de ${fmtSize(sp.quota)}</b></div><div class="bar"><i style="width:${Math.min(100, sp.usage / sp.quota * 100)}%"></i></div>` : ''}
+          <div class="kv"><span>Borrar lo ya visto si falta espacio<small>Borra primero los episodios terminados más antiguos</small></span><button class="switch ${autoClean ? 'on' : ''}" data-act="autoClean"></button></div>
+          <div class="kv"><span>Liberar espacio ahora</span><button class="btn sm" data-act="cleanNow">Borrar vistos</button></div>
+          <div class="kv"><span>Buscar información en AniList al añadir</span><button class="switch ${autoMeta ? 'on' : ''}" data-act="autoMeta"></button></div></div>
       </div>`;
     },
   };
@@ -258,7 +289,7 @@ const App = (() => {
     if (ui.dSort === 'desc') list.reverse();
     const items = list.map(it => {
       const frac = it.total && !it.done ? it.pos / it.total : 0;
-      const sub = remote ? (it.have ? 'En tu biblioteca' : fmtSize(it.size)) : it.done ? (s.kind === 'anime' ? 'Visto' : 'Leído') : frac ? (s.kind === 'anime' ? fmtTime(it.pos) + ' de ' + fmtTime(it.total) : `Pág. ${it.pos + 1} de ${it.total}`) : fmtSize(it.size);
+      const sub = remote ? (it.have ? 'En tu biblioteca' : fmtSize(it.size)) : (it.remote || it.removed) && !it.fileKey && !it.pageKeys ? (it.done ? (s.kind === 'anime' ? 'Visto' : 'Leído') + ' · ' : '') + 'No está en este dispositivo' : it.done ? (s.kind === 'anime' ? 'Visto' : 'Leído') : frac ? (s.kind === 'anime' ? fmtTime(it.pos) + ' de ' + fmtTime(it.total) : `Pág. ${it.pos + 1} de ${it.total}`) : fmtSize(it.size);
       return `<div class="ep ${it.done ? 'done' : ''} ${cur?.id === it.id ? 'cur' : ''}">
         <button class="ep-btn" data-item="${remote ? 'r' + it.num : esc(it.id)}"><span class="n">${it.num}</span>
         <span class="grow"><b>${esc(it.title)}</b><span class="tiny">${sub}</span>${frac ? `<div class="mini"><i style="width:${frac * 100}%"></i></div>` : ''}</span></button>
@@ -272,15 +303,24 @@ const App = (() => {
     if (ui.dTab === 'eps') body = `<div class="d-tools"><span class="tiny">${list.length} ${unit[1]}</span>
         <button class="chip ${ui.dUnread ? 'on' : ''}" data-dt="unread">Sin ${s.kind === 'anime' ? 'ver' : 'leer'}</button>
         <button class="chip" data-dt="sort" title="Orden">${ui.dSort === 'asc' ? '1 → 9' : '9 → 1'}</button></div>${items}`;
-    if (ui.dTab === 'info') body = `${s.desc ? `<p class="d-desc">${esc(s.desc)}</p>` : ''}<dl class="info-grid">
+    const lists = await getLists(), m = s.meta || {};
+    if (ui.dTab === 'info') body = `${m.genres?.length ? `<div class="chips genres">${m.genres.map(g => `<span class="chip">${esc(g)}</span>`).join('')}</div>` : ''}
+        ${s.desc ? `<p class="d-desc clamp" data-act="more">${esc(s.desc)}</p>` : ''}
+        ${remote ? '' : `<div class="mine"><div class="stars" data-stars>${[1, 2, 3, 4, 5].map(n => `<button data-rate="${n}" class="${(s.rating || 0) >= n ? 'on' : ''}" title="${n} de 5">★</button>`).join('')}<span class="tiny">${s.rating ? 'Mi valoración' : 'Valorar'}</span></div>
+          <div class="chips">${lists.map(l => `<button class="chip ${(s.lists || []).includes(l) ? 'on' : ''}" data-list="${esc(l)}">${(s.lists || []).includes(l) ? '✓ ' : '+ '}${esc(l)}</button>`).join('')}</div>
+          <textarea id="dNote" placeholder="Mis notas sobre esta serie…" rows="3">${esc(s.note || '')}</textarea>
+          <div class="kv"><span>Avisarme de capítulos nuevos<small>Revisa tus bots y fuentes al abrir la app</small></span><button class="switch ${s.follow ? 'on' : ''}" data-act="follow"></button></div></div>`}
+        <dl class="info-grid">
+        ${m.format ? `<dt>Formato</dt><dd>${esc(m.format)}</dd>` : ''}${m.year ? `<dt>Año</dt><dd>${m.year}</dd>` : ''}${m.status ? `<dt>Estado</dt><dd>${esc(m.status)}</dd>` : ''}${m.score ? `<dt>Nota AniList</dt><dd>${m.score} / 100</dd>` : ''}${m.count ? `<dt>Total</dt><dd>${m.count} ${unit[1]}</dd>` : ''}
         <dt>Tipo</dt><dd>${s.kind === 'anime' ? 'Anime' : 'Manga'}</dd>
         <dt>${unit[1][0].toUpperCase() + unit[1].slice(1)}</dt><dd>${s.items.length}</dd>
         ${remote ? `<dt>Fuente</dt><dd>${esc(remote.name)}</dd>` : `<dt>Progreso</dt><dd>${s.doneCount} ${unit[2]}</dd><dt>Fuente</dt><dd>${esc(s.source || '—')}</dd><dt>Espacio</dt><dd>${fmtSize(s.size)}</dd>
-        <dt>Añadido</dt><dd>${new Date(s.addedAt).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}</dd>`}</dl>`;
+        <dt>Añadido</dt><dd>${new Date(s.addedAt).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}</dd>`}</dl>
+        ${remote ? '' : `<div class="d-tools" style="margin-top:12px"><button class="btn sm" data-act="anilist">${m.id ? 'Cambiar información (AniList)' : 'Buscar información en AniList'}</button>${m.url ? `<a class="btn sm ghost" href="${esc(m.url)}" target="_blank" rel="noopener">Ver en AniList ↗</a>` : ''}</div>`}`;
     if (ui.dTab === 'read') body = `<p class="tiny" style="padding:4px 8px 10px">Cómo se abre esta serie. Dentro del lector (⚙) tienes encaje, zoom, recorte, filtros, zonas táctiles y más.</p>
         <div class="rmodes">${Reader.MODES.map(([id, n, sub, p]) => `<button class="mode ${rmode === id ? 'on' : ''}" data-smode="${id}"><svg viewBox="0 0 24 24" style="width:22px;height:22px">${p}</svg><b>${n}</b><small>${sub}</small></button>`).join('')}</div>`;
     const pct = !remote && s.items.length ? s.doneCount / s.items.length : 0;
-    d.innerHTML = `<div class="d-banner" style="background-image:url(&quot;${esc(s.cover)}&quot;)"></div>
+    d.innerHTML = `<div class="d-banner ${s.banner ? 'sharp' : ''}" style="background-image:url(&quot;${esc(s.banner || s.cover)}&quot;)"></div>
       <div class="d-wrap">
       <button class="d-close" data-act="closeDetail" title="Cerrar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       <div class="d-head"><div class="cv"><img src="${esc(s.cover)}" alt="">${tag(s.kind)}</div>
@@ -311,7 +351,7 @@ const App = (() => {
       // Ver online sin descargar
       const ser = { id: 'tmp', title: s.title, kind: s.kind, hue: s.hue, mode: 'rtl' };
       const tmp = { id: 'tmp-' + it.num, seriesId: 'tmp', num: it.num, title: it.title, demo: it.demo, total: s.kind === 'anime' ? 1440 : 18, pos: 0 };
-      if (!it.demo) { toast('Ver online para este add-on llegará en el siguiente paso'); return; }
+      if (!it.demo) { if (!it.url && !it.pages) return toast('Esta fuente no da enlace para ver online'); Object.assign(tmp, { url: it.url, pages: it.pages, demo: false, total: 0 }); }
       return s.kind === 'anime' ? Player.open(tmp, ser) : Reader.open(tmp, ser);
     }
     const it = s.items.find(i => i.id === key);
@@ -342,6 +382,7 @@ const App = (() => {
     const { s } = ui.detail;
     sheet(`<h3>${esc(s.title)}</h3><div class="menu">
       ${s.kind === 'manga' ? `<div class="kv"><span>Modo de lectura</span><div class="seg" id="smMode">${[['rtl', 'Manga'], ['ltr', 'Cómic'], ['vertical', 'Webtoon']].map(([k, l]) => `<button data-v="${k}" class="${(s.mode || 'rtl') === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>` : ''}
+      <button class="ep" data-m="anilist">Buscar información (AniList)</button>
       <button class="ep" data-m="rename">Cambiar nombre</button>
       <button class="ep" data-m="reset">Reiniciar progreso</button>
       <button class="ep" data-m="del" style="color:#ff7a7a">Borrar serie y archivos (${fmtSize(s.size)})</button></div>
@@ -349,6 +390,7 @@ const App = (() => {
       $('#smMode', w)?.addEventListener('click', async e => { const v = e.target.dataset.v; if (!v) return; await saveSeriesMode(s, v); s.mode = v; w.querySelectorAll('#smMode button').forEach(b => b.classList.toggle('on', b.dataset.v === v)); });
       w.querySelector('.menu').addEventListener('click', async e => {
         const m = e.target.closest('[data-m]')?.dataset.m; if (!m) return; close();
+        if (m === 'anilist') return anilistSheet(s);
         if (m === 'rename') return sheet(`<h3>Cambiar nombre</h3><input id="nn" value="${esc(s.title)}"><div class="acts"><button class="btn" data-close>Cancelar</button><button class="btn primary" id="ok">Guardar</button></div>`, (w2, c2) => {
           $('#ok', w2).onclick = async () => { const r = await DB.get('series', s.id); r.title = $('#nn', w2).value.trim() || r.title; await DB.put('series', r); c2(); refresh(); };
         });
@@ -356,6 +398,33 @@ const App = (() => {
         if (m === 'del') { if (!(await confirmSheet(`¿Borrar "${s.title}" de este dispositivo?`))) return; for (const x of s.items) await deleteItem(x); await DB.del('series', s.id); closeDetail(); toast('Serie borrada'); }
         refresh();
       });
+    });
+  }
+
+  /* ---------- AniList ---------- */
+  function anilistSheet(s) {
+    sheet(`<h3>Información de AniList</h3>
+      <div class="toolbar" style="margin:0 0 10px"><input id="alQ" value="${esc(s.meta?.title || s.title)}"><button class="btn primary" id="alGo">Buscar</button></div>
+      <div class="list" id="alRes"><p class="muted">Buscando…</p></div>
+      <div class="acts"><button class="btn" data-close>Cerrar</button></div>`, (w, close) => {
+      const go = async () => {
+        const box = $('#alRes', w); box.innerHTML = '<p class="muted">Buscando…</p>';
+        try {
+          const res = await Meta.search($('#alQ', w).value.trim(), s.kind);
+          w._res = res;
+          box.innerHTML = res.length ? res.map((m, i) => `<button class="row al" data-al="${i}"><img src="${esc(m.cover)}" alt=""><span class="grow"><b>${esc(m.title)}</b><span class="tiny">${[m.format, m.year, m.count ? m.count + (s.kind === 'anime' ? ' ep.' : ' cap.') : '', m.score ? m.score + '/100' : ''].filter(Boolean).join(' · ')}</span></span></button>`).join('') : '<p class="muted">Sin resultados. Prueba con el título en japonés o en inglés.</p>';
+        } catch (e) { box.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+      };
+      $('#alGo', w).onclick = go; $('#alQ', w).onkeydown = e => e.key === 'Enter' && go();
+      $('#alRes', w).onclick = async e => { const b = e.target.closest('[data-al]'); if (!b) return; b.innerHTML = '<span class="muted">Guardando…</span>'; await Meta.apply(s.id, w._res[+b.dataset.al]); close(); toast('Información actualizada'); refresh(); };
+      go();
+    });
+  }
+  async function editLists() {
+    const lists = await getLists();
+    sheet(`<h3>Mis listas</h3><p class="tiny" style="margin-bottom:10px">Una por línea. Puedes crear las que quieras.</p><textarea id="lsT" rows="7">${esc(lists.join('\n'))}</textarea>
+      <div class="acts"><button class="btn" data-close>Cancelar</button><button class="btn primary" id="lsOk">Guardar</button></div>`, (w, close) => {
+      $('#lsOk', w).onclick = async () => { const v = [...new Set($('#lsT', w).value.split('\n').map(x => x.trim()).filter(Boolean))]; await DB.setKV('lists', v.length ? v : DEF_LISTS); close(); render(); };
     });
   }
 
@@ -398,7 +467,7 @@ const App = (() => {
   }
 
   /* ---------- importar archivos ---------- */
-  const VID = /\.(mp4|m4v|webm|mkv|mov)$/i, SUB = /\.(srt|vtt)$/i, IMG = /\.(jpe?g|png|webp|gif|avif|bmp)$/i, ARC = /\.(cbz|zip)$/i;
+  const VID = /\.(mp4|m4v|webm|mkv|mov)$/i, SUB = /\.(srt|vtt|ass|ssa)$/i, IMG = /\.(jpe?g|png|webp|gif|avif|bmp)$/i, ARC = Formats.BOOK;
   function parseName(name) {
     let b = name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ');
     b = b.replace(/\[[^\]]*\]|\([^)]*\)|\{[^}]*\}/g, ' ').replace(/\b(1080p|720p|480p|2160p|x26[45]|hevc|aac|web-?dl|bluray|bd|sub|dub|esp|español|castellano|latino)\b/ig, ' ');
@@ -454,16 +523,19 @@ const App = (() => {
           if (!s.realCover) { s.cover = await thumb(sorted[0]); s.realCover = true; }
         } else {
           const f = c.files[0]; const k = id + '-f';
-          await DB.put('files', { key: k, blob: f, name: f.name, type: f.type || (ARC.test(f.name) ? 'application/zip' : '') });
-          Object.assign(base, { fileKey: k, size: f.size });
+          const v = g.kind === 'anime' ? await convertVideo(f) : { blob: f, name: f.name, subs: [] };
+          if (!(await Space.ensure(v.blob.size))) { toast('No hay espacio suficiente para ' + f.name); continue; }
+          await DB.put('files', { key: k, blob: v.blob, name: v.name, type: v.blob.type || f.type || 'application/octet-stream' });
+          Object.assign(base, { fileKey: k, size: v.blob.size });
+          if (v.err) base.convErr = v.err;
           if (g.kind === 'anime') {
-            const stem = f.name.replace(/\.[^.]+$/, '');
+            const stem = f.name.replace(/\.[^.]+$/, '').replace(/\s+$/, '');
             const mine = subs.filter(sb => sb.name.startsWith(stem) || (g.chapters.length === 1 && subs.length));
             base.subKeys = [];
-            for (const sb of mine) { const sk = id + '-s' + base.subKeys.length; await DB.put('files', { key: sk, blob: sb, name: sb.name, type: 'text/plain' }); base.subKeys.push(sk); }
+            for (const sb of [...mine, ...v.subs]) { const sk = id + '-s' + base.subKeys.length; await DB.put('files', { key: sk, blob: sb.blob || sb, name: sb.name, type: 'text/plain' }); base.subKeys.push(sk); }
             if (!s.realCover) { const t = await videoThumb(f); if (t) { s.cover = t; s.realCover = true; } }
           } else if (!s.realCover) {
-            try { const pg = await Zip.pages(f); base.total = pg.length; if (pg[0]) { s.cover = await thumb(await pg[0].load()); s.realCover = true; } } catch { }
+            try { const pg = await Formats.pages(f, f.name); base.total = pg.length; if (pg[0]) { s.cover = await thumb(await pg[0].load()); s.realCover = true; } } catch { }
           }
         }
         await DB.put('items', base); its.push(base); n++;
@@ -472,6 +544,10 @@ const App = (() => {
     }
     toast(`${n} ${n === 1 ? 'archivo añadido' : 'archivos añadidos'}`);
     refresh();
+    if (await DB.getKV('autoMeta', true)) for (const g of groups.values()) {
+      const ser = (await DB.all('series')).find(x => x.kind === g.kind && norm(x.title) === norm(g.title) && !x.meta);
+      if (ser && await Meta.auto(ser.id)) refresh();
+    }
   }
   function getGroup(groups, kind, title) { const k = kind + '|' + norm(title); if (!groups.has(k)) groups.set(k, { kind, title, chapters: [] }); return groups.get(k); }
 
@@ -565,7 +641,7 @@ const App = (() => {
       const iEl = t.closest('#detail [data-item]'); if (iEl) return itemClick(iEl.dataset.item);
       const mEl = t.closest('[data-menu]'); if (mEl) return itemMenu(mEl.dataset.menu);
       const dEl = t.closest('[data-dl]'); if (dEl) { const { s, remote } = ui.detail; const it = s.items.find(i => i.num === +dEl.dataset.dl); await Downloads.enqueue(remote, { ...s, id: s.id.split(':')[2] }, [it]); dEl.remove(); return toast('Añadido a descargas'); }
-      const chips = t.closest('[data-chips] .chip'); if (chips) { ui[chips.parentElement.dataset.chips] = chips.dataset.v; return render(); }
+      const chips = t.closest('[data-chips] .chip:not([data-act])'); if (chips) { ui[chips.parentElement.dataset.chips] = chips.dataset.v; return render(); }
       const tg = t.closest('[data-toggle]'); if (tg) { await Addons.toggle(tg.dataset.toggle); return render(); }
       const rm = t.closest('[data-remove]'); if (rm) { if (await confirmSheet('¿Quitar este add-on?', 'Quitar')) { await Addons.remove(rm.dataset.remove); render(); } return; }
       const bot = t.closest('[data-bot]'); if (bot) return botSheet(bot.dataset.bot);
@@ -574,6 +650,8 @@ const App = (() => {
       const pm = t.closest('[data-pref-mode]'); if (pm) { const p = await DB.getKV('readerPrefs', {}); p.mode = pm.dataset.prefMode; await DB.setKV('readerPrefs', p); return render(); }
       const tm = t.closest('[data-theme-mode] button'); if (tm) { const th = await DB.getKV('theme', { mode: 'dark', ac: ACCENTS[0] }); th.mode = tm.dataset.v; await DB.setKV('theme', th); await applyTheme(); return render(); }
       const ac = t.closest('[data-accent]'); if (ac) { const th = await DB.getKV('theme', { mode: 'dark', ac: ACCENTS[0] }); th.ac = ac.dataset.accent; await DB.setKV('theme', th); await applyTheme(); return render(); }
+      const star = t.closest('[data-stars] [data-rate]'); if (star) { const ser = await DB.get('series', ui.detail.id); const v = +star.dataset.rate; ser.rating = ser.rating === v ? 0 : v; ser.rateAt = Date.now(); await DB.put('series', ser); return openDetail(ui.detail.id, $('#detail').scrollTop || 1); }
+      const li = t.closest('[data-list]'); if (li) { const ser = await DB.get('series', ui.detail.id); const l = li.dataset.list; ser.lists = (ser.lists || []).includes(l) ? ser.lists.filter(x => x !== l) : [...(ser.lists || []), l]; await DB.put('series', ser); return openDetail(ui.detail.id, $('#detail').scrollTop || 1); }
       const dtab = t.closest('[data-dtab]'); if (dtab) { ui.dTab = dtab.dataset.dtab; return openDetail(ui.detail.id, $('#detail').scrollTop || 1); }
       const dt = t.closest('[data-dt]'); if (dt) { if (dt.dataset.dt === 'sort') ui.dSort = ui.dSort === 'asc' ? 'desc' : 'asc'; else ui.dUnread = !ui.dUnread; return openDetail(ui.detail.id, $('#detail').scrollTop || 1); }
       const sm = t.closest('[data-smode]'); if (sm) { const ser = await DB.get('series', ui.detail.id); ser.reader = { ...(ser.reader || {}), mode: sm.dataset.smode }; await DB.put('series', ser); toast('Se abrirá en modo ' + sm.querySelector('b').textContent); return openDetail(ui.detail.id, $('#detail').scrollTop || 1); }
@@ -582,6 +660,17 @@ const App = (() => {
       const act = t.closest('[data-act]')?.dataset.act; if (!act) return;
       if (act === 'import') $('#importBtn').click();
       if (act === 'closeDetail') closeDetail();
+      if (act === 'anilist') return anilistSheet(ui.detail.s);
+      if (act === 'editLists') return editLists();
+      if (act === 'follow') { const ser = await DB.get('series', ui.detail.id); ser.follow = !ser.follow; await DB.put('series', ser); if (ser.follow) Notify.ask(); return openDetail(ui.detail.id, $('#detail').scrollTop || 1); }
+      if (act === 'more') { t.closest('.d-desc')?.classList.toggle('clamp'); return; }
+      if (act === 'exportBk') { await Backup.exportFile(); return toast('Copia descargada'); }
+      if (act === 'importBk') { try { const r = await Backup.importFile(); if (r) { toast(`Copia importada: ${r.newSeries} series nuevas, ${r.updated} capítulos actualizados`); refresh(); } } catch (e) { toast(e.message); } return; }
+      if (act === 'tgSync') { const tg = await DB.getKV('telegram', {}); tg.sync = !tg.sync; await DB.setKV('telegram', tg); if (tg.sync) Tg.sync().then(r => r && toast(r)).catch(e => toast(e.message)); return render(); }
+      if (act === 'autoClean') { await DB.setKV('autoClean', !(await DB.getKV('autoClean', false))); return render(); }
+      if (act === 'autoMeta') { await DB.setKV('autoMeta', !(await DB.getKV('autoMeta', true))); return render(); }
+      if (act === 'cleanNow') { if (!(await confirmSheet('¿Borrar los archivos de todo lo que ya has visto o leído? El progreso se mantiene.', 'Borrar'))) return; const f = await Space.clean(); toast('Liberado ' + fmtSize(f)); return refresh(); }
+      if (act === 'diag') { const rows = await Space.diagnose(); return sheet(`<h3>Diagnóstico de este dispositivo</h3>${rows.map(([k, v]) => `<div class="kv"><span>${esc(k)}</span><b style="text-align:right">${esc(v)}</b></div>`).join('')}<div class="acts"><button class="btn primary" data-close>Cerrar</button></div>`); }
       if (act === 'clearQ') { ui.libQ = ''; $('#gq').value = ''; render(); }
       if (act === 'seriesMenu') seriesMenu();
       if (act === 'addAddon') addAddonSheet();
@@ -603,6 +692,7 @@ const App = (() => {
       if (e.target.id === 'gq') { ui.libQ = e.target.value; if (ui.view !== 'biblioteca') go('biblioteca').then(() => $('#gq').focus()); else render(); }
       if (e.target.id === 'exQ') { ui.exQ = e.target.value; clearTimeout(st); st = setTimeout(render, 300); }
     });
+    document.addEventListener('focusout', async e => { if (e.target.id === 'dNote' && ui.detail) { const ser = await DB.get('series', ui.detail.id); if ((ser.note || '') !== e.target.value) { ser.note = e.target.value; ser.noteAt = Date.now(); await DB.put('series', ser); toast('Nota guardada'); } } });
     document.addEventListener('change', e => { if (e.target.id === 'libSort') { ui.libSort = e.target.value; render(); } });
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && ui.detail && $('#reader').hidden && $('#player').hidden && $('#sheet').hidden) closeDetail(); });
 
@@ -646,13 +736,14 @@ const App = (() => {
     await applyTheme();
     bind();
     heroTick();
-    await Demo.seed();
+    if (!(await DB.getKV('v3'))) { await Demo.clear(); await DB.setKV('v3', true); await DB.setKV('demoSeeded', true); }
     await go(ui.view);
+    Space.persist();
     navStorage();
     takeShared();
     if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => { });
   }
 
-  return { start, esc, toast, sheet, touch, saveProgress, adjacent, saveSeriesMode, saveSeriesReader, parseName, importFiles };
+  return { start, esc, toast, progress, convertVideo, fmtSize, sheet, touch, saveProgress, adjacent, saveSeriesMode, saveSeriesReader, parseName, importFiles };
 })();
 App.start();
