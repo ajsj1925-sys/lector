@@ -2,7 +2,7 @@
 const App = (() => {
   const $ = (s, r = document) => r.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const VERSION = '0.4.1';
+  const VERSION = '0.4.2';
   const pl = (n, [one, many]) => `${n} ${n === 1 ? one : many}`;
   const DEF_LISTS = ['Leyendo', 'Pendiente', 'Favoritos', 'Abandonado'];
   const getLists = async () => DB.getKV('lists', DEF_LISTS);
@@ -89,6 +89,7 @@ const App = (() => {
     if (series.kind === 'anime') Player.open(item, series, done); else Reader.open(item, series, done);
   }
 
+  const previews = new Map(); // tarjetas de add-ons vistas (título y portada por si la fuente no da ficha)
   const ridOf = id => id.split(':').slice(2).join(':'); // 'r:<addon>:<id de la fuente>' (el id puede llevar ':')
 
   /* ---------- piezas de interfaz ---------- */
@@ -197,7 +198,7 @@ const App = (() => {
         let cat = ''; try { const r = await Catalog.browse(kind, q); cat = r.length ? `<h2 class="sec">Catálogo <span class="count">${r.length}</span></h2><div class="grid">${r.map(c => cardHTML(c)).join('')}</div>` : `<p class="muted">Nada en el catálogo con “${esc(q)}”.</p>`; } catch (e) { cat = fail(e); }
         const res = await Addons.search(q, kind);
         body = cat + res.filter(x => x.results.length || x.error).map(({ addon, results, error }) => `<h2 class="sec">${esc(addon.name)} <span class="tiny">${error ? 'Error: ' + esc(error) : results.length + ' resultados'}</span></h2>
-          ${results.length ? `<div class="grid">${results.map(r => cardHTML({ ...r, sourceName: addon.name, id: 'r:' + addon.id + ':' + r.id })).join('')}</div>` : ''}`).join('');
+          ${results.length ? `<div class="grid">${results.map(r => { const c = { ...r, sourceName: addon.name, id: 'r:' + addon.id + ':' + r.id }; previews.set(c.id, c); return cardHTML(c); }).join('')}</div>` : ''}`).join('');
       } else if (ui.exGenre) {
         try { const r = await Catalog.browse(kind, '', ui.exGenre); body = `<div class="grid">${r.map(c => cardHTML(c)).join('')}</div>`; } catch (e) { body = fail(e); }
       } else {
@@ -205,8 +206,8 @@ const App = (() => {
         body += cards('wish', kind === 'anime' ? 'Quiero verlo' : 'Quiero leerlo', wish);
         try { for (const [id, title, list] of await Catalog.home(kind)) body += cards('c' + id, title, list); } catch (e) { body += fail(e); }
         const own = await Addons.home();
-        own.forEach(({ addon, title, results, error }, i) => { body += error ? `<h2 class="sec">${esc(title)} <span class="tiny">Error: ${esc(error)}</span></h2>` : cards('a' + i, esc(title), results.map(r => ({ ...r, sourceName: addon.name, id: 'r:' + addon.id + ':' + r.id }))); });
-        for (const { addon, results } of await Addons.search('', '')) if (addon.type === 'streaming' && !addon.catalog && results.length) body += cards('s' + addon.id, esc(addon.name), results.map(r => ({ ...r, sourceName: addon.name, id: 'r:' + addon.id + ':' + r.id })));
+        own.forEach(({ addon, title, results, error }, i) => { body += error ? `<h2 class="sec">${esc(title)} <span class="tiny">Error: ${esc(error)}</span></h2>` : cards('a' + i, esc(title), results.map(r => { const c = { ...r, sourceName: addon.name, id: 'r:' + addon.id + ':' + r.id }; previews.set(c.id, c); return c; })); });
+        for (const { addon, results } of await Addons.search('', '')) if (addon.type === 'streaming' && !addon.catalog && results.length) body += cards('s' + addon.id, esc(addon.name), results.map(r => { const c = { ...r, sourceName: addon.name, id: 'r:' + addon.id + ':' + r.id }; previews.set(c.id, c); return c; }));
         if (!addons.some(a => a.type !== 'telegram')) body += `<p class="tiny ex-foot">El catálogo muestra fichas, tráileres y dónde verlo de forma oficial. Para ver o descargar episodios: tus bots de Telegram o un add-on que instales en <a href="#" data-act="addAddon" style="color:var(--ac)">+ Añadir add-on</a>.</p>`;
       }
       return head + botRow + body;
@@ -306,7 +307,7 @@ const App = (() => {
       const aid = id.split(':')[1], rid = ridOf(id);
       const addon = await DB.get('addons', aid);
       if (!addon) return closeDetail();
-      try { s = await Addons.series(addon, rid); } catch (e) { toast('No se pudo abrir: ' + e.message); return; }
+      try { s = await Addons.series(addon, rid, previews.get(id)); } catch (e) { toast('No se pudo abrir: ' + e.message); return; }
       remote = addon;
       const sid = 'src-' + aid + '-' + rid;
       const have = new Set((await DB.byIndex('items', 'seriesId', sid)).map(i => i.num));
@@ -390,6 +391,7 @@ const App = (() => {
     const wished = (await Catalog.wish()).some(w => w.id === id);
     const bots = (await Addons.list()).filter(a => a.enabled && a.type === 'telegram');
     const srcs = (await Addons.list()).filter(a => a.enabled && a.type !== 'telegram');
+    const streamAddons = srcs.some(a => a.type === 'stremio' && a.hasStream);
     const local = (await libraryData()).find(x => x.meta?.id === +id.slice(2));
     const yt = c.links.filter(l => l.yt), other = c.links.filter(l => !l.yt);
     const langs = { Spanish: 'ES', English: 'EN', Japanese: 'JP' };
@@ -409,6 +411,7 @@ const App = (() => {
         ${srcs.length ? `<button class="btn ghost" data-act="srcSearch">Buscar en mis add-ons</button>` : ''}
       </div>
       <div class="d-body">
+        ${anime && streamAddons ? `<h4 class="d-sub">Episodios <span class="tiny">de tus add-ons</span></h4><div id="cEps" class="c-eps"><p class="tiny">Buscando la serie…</p></div>` : ''}
         ${c.links.length ? `<h4 class="d-sub">${anime ? 'Dónde verlo' : 'Dónde leerlo'} <span class="tiny">oficial</span></h4><div class="wlinks">${yt.map(link).join('')}${other.map(link).join('')}</div>${yt.length ? '<p class="tiny">Los canales oficiales de YouTube pueden no estar disponibles en todos los países.</p>' : ''}`
           : `<p class="tiny d-none">AniList no tiene enlaces oficiales para esta serie.</p>`}
         ${m.genres?.length ? `<div class="chips genres">${m.genres.map(g => `<span class="chip">${esc(g)}</span>`).join('')}</div>` : ''}
@@ -420,6 +423,23 @@ const App = (() => {
     $('#app').classList.add('has-detail');
     document.querySelectorAll('.card').forEach(x => x.classList.toggle('sel', x.dataset.series === id));
     d.scrollTop = keepScroll || 0;
+    if (anime && streamAddons) catalogEps(c);
+  }
+
+  /* Episodios de una serie del catálogo con los add-ons de Stremio (ids de Kitsu: kitsu:<id>:<ep>) */
+  async function catalogEps(c, from = 0) {
+    const box = () => ui.detail?.id === c.id && $('#cEps');
+    const k = await Catalog.kitsuId(c.id.slice(2), c.titles.concat(c.title));
+    if (!box()) return;
+    if (!k) { box().innerHTML = '<p class="tiny">No se encontró esta serie en Kitsu, que es lo que usan los add-ons de anime para saber qué capítulo es. Prueba a buscarla en tus add-ons.</p>'; return; }
+    const movie = k.movie || c.meta.format === 'Película';
+    let n = movie ? 1 : (c.meta.count || k.eps || (c.next ? c.next.episode - 1 : 0) || 12);
+    const ep = i => ({ num: i, title: movie ? c.title : `${c.title} · Ep. ${i}`, vid: movie ? 'kitsu:' + k.id : `kitsu:${k.id}:${i}`, stype: movie ? 'movie' : 'series' });
+    ui.detail.eps = ep;
+    const ranges = n > 100 ? `<div class="chips eps-range">${Array.from({ length: Math.ceil(n / 100) }, (_, r) => `<button class="chip ${r * 100 === from ? 'on' : ''}" data-crange="${r * 100}">${r * 100 + 1}–${Math.min(n, r * 100 + 100)}</button>`).join('')}</div>` : '';
+    const nums = Array.from({ length: Math.min(100, n - from) }, (_, i) => from + i + 1);
+    box().innerHTML = ranges + (movie ? `<button class="btn sm primary" data-cep="1">${playIco}Ver película</button>`
+      : `<div class="ep-grid">${nums.map(i => `<button data-cep="${i}">${i}</button>`).join('')}</div>`);
   }
 
   /* Vídeo de YouTube incrustado (tráileres y canales oficiales) */
@@ -442,11 +462,12 @@ const App = (() => {
   async function stremioPlay(remote, s, it) {
     progress('Buscando enlaces…');
     let ss; try { ss = await Addons.streams(remote, it); $('#toast').classList.remove('on'); } catch (e) { return toast('No se pudieron cargar los enlaces: ' + e.message); }
-    if (!ss.length) return toast('Esta fuente no tiene enlaces para este episodio');
+    if (!ss.length) return toast('Tus add-ons no tienen enlaces para este episodio');
     const playUrl = st => { const ser = { id: 'tmp', title: s.title, kind: 'anime' }; Player.open({ id: 'tmp-' + it.num, seriesId: 'tmp', num: it.num, title: it.title, url: st.url, total: 0, pos: 0 }, ser); };
     const ok = ss.filter(x => x.url || x.yt || x.ext);
+    if (!ok.length && ss.every(x => x.error)) return toast(ss[0].label);
     if (ok.length === 1 && ok[0].url && !ok[0].hls) return playUrl(ok[0]);
-    sheet(`<h3>${esc(it.title)}</h3><div class="menu">${ss.map((x, i) => `<button class="ep" data-i="${i}" ${x.torrent && !x.url ? 'disabled' : ''}><span class="grow"><b>${esc(x.label)}</b><span class="tiny">${x.yt ? 'YouTube' : x.ext ? 'Se abre fuera de Lector' : x.torrent && !x.url ? 'Torrent: no compatible' : x.hls ? 'Emisión HLS (mejor en iPhone/iPad)' : 'Vídeo directo'}</span></span></button>`).join('')}</div><div class="acts"><button class="btn" data-close>Cerrar</button></div>`,
+    sheet(`<h3>${esc(it.title)}</h3><div class="menu">${ss.map((x, i) => `<button class="ep" data-i="${i}" ${(x.torrent && !x.url) || x.error ? 'disabled' : ''}><span class="grow"><b>${esc(x.label)}</b><span class="tiny">${esc(x.addon || '')} · ${x.error ? 'no respondió' : x.yt ? 'YouTube' : x.ext ? 'Se abre fuera de Lector' : x.torrent && !x.url ? 'Torrent: una app web no puede abrirlo' : x.hls ? 'Emisión HLS (mejor en iPhone/iPad)' : 'Vídeo directo'}</span></span></button>`).join('')}</div><div class="acts"><button class="btn" data-close>Cerrar</button></div>`,
       (w, close) => w.querySelector('.menu').onclick = e => { const b = e.target.closest('[data-i]'); if (!b || b.disabled) return; close(); const x = ss[+b.dataset.i];
         if (x.url) return playUrl(x); if (x.yt) return ytSheet('https://youtu.be/' + x.yt, it.title); if (x.ext) window.open(x.ext, '_blank', 'noopener'); });
   }
@@ -749,6 +770,8 @@ const App = (() => {
     document.addEventListener('click', async e => {
       const t = e.target;
       const goEl = t.closest('[data-go]'); if (goEl) { e.preventDefault(); return go(goEl.dataset.go); }
+      const ce = t.closest('[data-cep]'); if (ce && ui.detail?.eps) return stremioPlay(null, { title: ui.detail.cat.title }, ui.detail.eps(+ce.dataset.cep));
+      const cr = t.closest('[data-crange]'); if (cr) return catalogEps(ui.detail.cat, +cr.dataset.crange);
       const yEl = t.closest('[data-yt]'); if (yEl) { e.preventDefault(); return ytSheet(yEl.dataset.yt, ui.detail?.cat?.title); }
       const sEl = t.closest('[data-series]'); if (sEl) return openDetail(sEl.dataset.series);
       const pEl = t.closest('[data-play]'); if (pEl) { const [sid, iid] = pEl.dataset.play.split('|'); const s = await DB.get('series', sid); return play(s, await DB.get('items', iid)); }

@@ -104,5 +104,35 @@ const Catalog = (() => {
     return null;
   }
 
-  return { home, browse, detail, wish, toggleWish, ytEmbed, GENRES };
+  /* Kitsu: muchos add-ons de anime de Stremio usan ids "kitsu:<id>:<episodio>".
+     AniList → Kitsu con la tabla de equivalencias de Kitsu (y si no, buscando por título). */
+  const KITSU = ['https://kitsu.app/api/edge', 'https://kitsu.io/api/edge'];
+  async function kitsu(path) {
+    let last;
+    for (const b of KITSU) { try { const r = await fetch(b + path, { headers: { Accept: 'application/vnd.api+json' } }); if (r.ok) return r.json(); last = r.status; } catch (e) { last = e.message; } }
+    throw new Error('Kitsu no responde (' + last + ')');
+  }
+  async function kitsuId(anilistId, titles = []) {
+    const key = 'kitsu:' + anilistId, c = await DB.getKV(key, null);
+    if (c) return c;
+    let out = null;
+    try {
+      const j = await kitsu(`/mappings?filter[externalSite]=anilist/anime&filter[externalId]=${anilistId}&include=item`);
+      const it = (j.included || []).find(x => x.type === 'anime');
+      if (it) out = { id: it.id, eps: it.attributes?.episodeCount || 0, movie: it.attributes?.subtype === 'movie' };
+    } catch { }
+    if (!out && titles[0]) {
+      try {
+        const j = await kitsu(`/anime?filter[text]=${encodeURIComponent(titles[0])}&page[limit]=5`);
+        const norm = t => (t || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const hit = (j.data || []).find(x => titles.some(t => [x.attributes.canonicalTitle, ...Object.values(x.attributes.titles || {})].some(k => norm(k) === norm(t))));
+        if (hit) out = { id: hit.id, eps: hit.attributes.episodeCount || 0, movie: hit.attributes.subtype === 'movie' };
+      } catch { }
+    }
+    if (out) DB.setKV(key, out);
+    return out;
+  }
+  async function kitsuEpisodes(id) { try { return (await kitsu('/anime/' + id)).data?.attributes?.episodeCount || 0; } catch { return 0; } }
+
+  return { home, browse, detail, wish, toggleWish, ytEmbed, GENRES, kitsuId, kitsuEpisodes };
 })();

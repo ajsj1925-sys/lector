@@ -75,6 +75,12 @@ de su `manifest.json` (vale también `stremio://…`). Lector lo convierte solo:
 - **Enlaces** (`/stream/{type}/{videoId}.json`): `url` directa → se reproduce o descarga; `ytId` → YouTube incrustado;
   `externalUrl` → se abre fuera; torrent (`infoHash`) → no compatible. HLS (`.m3u8`) se ve en iPhone/iPad, no en Chrome.
 
+Desde v0.4.2, como en Stremio, **una fuente da los capítulos y otra los enlaces**:
+- Los enlaces de un episodio se piden a **todos** los add-ons activos que tengan `stream` (respetando sus `idPrefixes`).
+- Si el add-on de la serie no da ficha (`meta`), se usan los capítulos de otro add-on, de Cinemeta (ids `tt…`) o de Kitsu (ids `kitsu:…`).
+- En las fichas del catálogo de anime sale **Episodios**: Lector busca la serie en Kitsu y pide los enlaces con `kitsu:<id>:<episodio>`
+  (películas: `kitsu:<id>`), que es lo que usan los add-ons de anime.
+
 El add-on tiene que permitir CORS (los de Stremio normalmente lo hacen).
 
 Solo para contenido que tengas derecho a usar (tuyo, libre o con licencia).

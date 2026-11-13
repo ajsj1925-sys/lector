@@ -504,3 +504,9 @@ details.howto a{color:var(--ac)}
 .yt{aspect-ratio:16/9;border-radius:12px;overflow:hidden;background:#000}
 .yt iframe{width:100%;height:100%;border:0;display:block}
 @media (max-width:720px){.genres-row{margin:-8px -16px 14px;padding:0 16px}}
+.c-eps{padding:0 8px 10px}
+.ep-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(48px,1fr));gap:6px;max-height:228px;overflow-y:auto}
+.ep-grid button{padding:9px 0;border-radius:10px;background:var(--bg3);border:1px solid var(--line);color:var(--tx);font:600 13px var(--font)}
+.ep-grid button:hover{background:var(--ac);color:#fff;border-color:var(--ac)}
+.eps-range{flex-wrap:nowrap;overflow-x:auto;margin-bottom:8px;scrollbar-width:none}
+.eps-range .chip{flex:none}

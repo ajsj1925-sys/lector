@@ -45,9 +45,11 @@ const Addons = (() => {
   function fromStremio(man) {
     const base = (man.manifestUrl || '').replace(/\/manifest\.json(\?.*)?$/, '');
     const res = (man.resources || []).map(r => typeof r === 'string' ? r : r.name);
+    // a qué ids responde cada recurso (p. ej. solo "tt" de IMDb o "kitsu:"); vacío = a todos
+    const pref = name => { const r = (man.resources || []).find(r => typeof r === 'object' && r.name === name); return r?.idPrefixes || man.idPrefixes || []; };
     return {
       type: 'stremio', id: 'st-' + String(man.id || DB.uid()).replace(/[^\w.-]/g, '_'), name: man.name || 'Add-on', version: man.version, desc: man.description || '',
-      logo: man.logo, base, manifestUrl: man.manifestUrl, catalogs: (man.catalogs || []).slice(0, 12), hasMeta: res.includes('meta'), hasStream: res.includes('stream'),
+      logo: man.logo, base, manifestUrl: man.manifestUrl, catalogs: (man.catalogs || []).slice(0, 12), hasMeta: res.includes('meta'), hasStream: res.includes('stream'), metaPrefixes: pref('meta'), streamPrefixes: pref('stream'),
     };
   }
   const stFetch = async (a, path) => { const r = await fetch(a.base + '/' + path); if (!r.ok) throw new Error('La fuente respondió ' + r.status); return r.json(); };
@@ -70,13 +72,36 @@ const Addons = (() => {
     return out;
   }
 
-  /* Enlaces de vídeo de un episodio (Stremio) */
-  async function streams(a, it) {
-    const j = await stFetch(a, `stream/${it.stype}/${encodeURIComponent(it.vid)}.json`);
-    return (j.streams || []).map(s => ({
-      label: [s.name, s.title || s.description].filter(Boolean).join(' · ').replace(/\n/g, ' ') || 'Enlace',
-      url: s.url, yt: s.ytId, ext: s.externalUrl, torrent: !!s.infoHash, hls: /\.m3u8(\?|$)/i.test(s.url || ''),
+  /* Enlaces de un episodio: en Stremio una fuente da los capítulos y otras dan los enlaces,
+     así que se pregunta a TODOS los add-ons de Stremio activos que den enlaces para ese tipo de id */
+  const okPrefix = (list, id) => !list?.length || list.some(p => id.startsWith(p));
+  async function streams(_, it) {
+    const all = (await list()).filter(a => a.enabled && a.type === 'stremio' && a.hasStream && okPrefix(a.streamPrefixes, it.vid));
+    if (!all.length) throw new Error('No tienes ningún add-on que dé enlaces para este tipo de serie');
+    const res = await Promise.all(all.map(async a => {
+      try {
+        const j = await stFetch(a, `stream/${it.stype}/${encodeURIComponent(it.vid)}.json`);
+        return (j.streams || []).map(s => ({
+          addon: a.name, label: [s.name, s.title || s.description].filter(Boolean).join(' · ').replace(/\n/g, ' ') || 'Enlace',
+          url: s.url, yt: s.ytId, ext: s.externalUrl, torrent: !!s.infoHash, hls: /\.m3u8(\?|$)/i.test(s.url || ''),
+        }));
+      } catch (e) { return [{ addon: a.name, label: 'Error: ' + e.message, error: true }]; }
     }));
+    return res.flat();
+  }
+
+  /* Capítulos de una serie de Stremio cuando la fuente no los da */
+  async function metaFor(type, mid, src) {
+    const others = (await list()).filter(a => a.enabled && a.type === 'stremio' && a.hasMeta && okPrefix(a.metaPrefixes, mid));
+    for (const a of [src, ...others.filter(a => a.id !== src?.id)].filter(a => a?.hasMeta && okPrefix(a.metaPrefixes, mid))) {
+      try { const m = (await stFetch(a, `meta/${type}/${encodeURIComponent(mid)}.json`)).meta; if (m) return m; } catch { }
+    }
+    if (/^tt\d+/.test(mid)) { // Cinemeta: los datos oficiales de Stremio (IMDb)
+      try { const r = await fetch(`https://v3-cinemeta.strem.io/meta/${type}/${mid}.json`); if (r.ok) { const m = (await r.json()).meta; if (m) return m; } } catch { }
+    }
+    const k = mid.match(/^kitsu:(\d+)/);
+    if (k) { const n = await Catalog.kitsuEpisodes(k[1]); if (n) return { id: mid, name: mid, videos: Array.from({ length: n }, (_, i) => ({ id: `kitsu:${k[1]}:${i + 1}`, season: 1, episode: i + 1 })) }; }
+    return null;
   }
 
   async function toggle(id) { const a = await DB.get('addons', id); a.enabled = !a.enabled; await DB.put('addons', a); return a; }
@@ -111,15 +136,16 @@ const Addons = (() => {
   }
 
   /* Ficha completa de una serie de un add-on (con episodios/capítulos) */
-  async function series(addon, id) {
+  async function series(addon, id, pv) {
     if (addon.id === 'demo-stream') {
       const c = Demo.CATALOG.find(c => c.id === id);
       return { ...c, items: Array.from({ length: c.count }, (_, i) => ({ num: i + 1, title: (c.kind === 'anime' ? 'Episodio ' : 'Capítulo ') + (i + 1), demo: true, size: c.kind === 'anime' ? 2.8e8 : 2e7 })) };
     }
     if (addon.type === 'stremio') {
       const [type, mid] = [id.slice(0, id.indexOf('|')), id.slice(id.indexOf('|') + 1)];
-      let m = { id: mid, name: mid };
-      if (addon.hasMeta) m = (await stFetch(addon, `meta/${type}/${encodeURIComponent(mid)}.json`)).meta || m;
+      const prev = pv ? { name: pv.title, poster: pv.cover, description: pv.desc } : {};
+      const m = { ...prev, ...((await metaFor(type, mid, addon)) || {}) };
+      m.name ||= prev.name || mid;
       const vids = (m.videos || []).slice().sort((a, b) => (a.season || 0) - (b.season || 0) || (a.episode || 0) - (b.episode || 0));
       const items = vids.length
         ? vids.map((v, i) => ({ num: i + 1, title: (v.season != null && v.episode != null ? `T${v.season} E${v.episode}` : 'Episodio ' + (i + 1)) + (v.title || v.name ? ' · ' + (v.title || v.name) : ''), vid: v.id, stype: type }))
@@ -191,7 +217,7 @@ const Downloads = (() => {
       return;
     }
     if (!j.it.url && j.it.vid) { // Stremio: buscar un enlace directo descargable
-      const ss = (await Addons.streams(j.addon, j.it)).filter(s => s.url && !s.hls);
+      const ss = (await Addons.streams(null, j.it)).filter(s => s.url && !s.hls);
       if (!ss.length) throw new Error('Esta fuente no da un enlace descargable');
       j.it.url = ss[0].url;
     }

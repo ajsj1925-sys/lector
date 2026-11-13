@@ -141,6 +141,16 @@ Se le propusieron 4 fuentes legales y aprobó 3 (sin el archivo de dominio públ
 
 **Probado** (Playwright, PC y móvil, AniList y un add-on Stremio simulados): filas del catálogo en Inicio y Explorar, manga, géneros, búsqueda (catálogo + add-on), ficha con enlaces y recomendaciones, guardar, tráiler y lista de YouTube incrustados, instalar `stremio://…`, fila del add-on, episodios ordenados, hoja de enlaces (torrent desactivado) y reproducción. Sin errores de consola.
 
+## 2026-11-13 · v0.4.2 · Add-ons de Stremio: capítulos y enlaces
+**Problema (usuario):** instala un add-on, abre una serie y no salen capítulos, temporadas ni enlaces.
+**Causa:** en Stremio una fuente da el catálogo/capítulos y otra (p. ej. las de torrents) solo los enlaces. Lector pedía todo al mismo add-on, y las fichas del catálogo (AniList) no preguntaban a los add-ons.
+**Arreglo:**
+- `js/addons.js`: `streams()` pregunta a todos los add-ons de Stremio con `stream` (filtra por `idPrefixes`, guardados en `streamPrefixes`/`metaPrefixes` al instalar; los antiguos sin ese dato aceptan todo). `metaFor()`: capítulos del propio add-on → otro add-on con `meta` → Cinemeta (`tt…`) → Kitsu (`kitsu:…`). `series(addon, id, pv)` usa el título/portada de la tarjeta si no hay ficha.
+- `js/catalog.js`: `kitsuId(anilistId, títulos)` (tabla de equivalencias de Kitsu en kitsu.app, con kitsu.io de respaldo; si no, búsqueda por título; caché `kv kitsu:<id>`), `kitsuEpisodes()`.
+- `js/app.js`: en la ficha del catálogo, sección **Episodios** (si hay add-on con enlaces): rejilla de números, tramos de 100 (One Piece…), película = un botón. La hoja de enlaces muestra de qué add-on viene cada uno.
+**Torrents:** se listan pero desactivados. Una web no puede conectarse a la red BitTorrent (solo navegador, sin servidor); si el add-on da enlaces directos (http), se ven.
+**Probado** (Playwright, add-ons simulados): add-on solo-enlaces + ficha AniList → Kitsu → `stream/series/kitsu:12:101` y reproduce; add-on solo-catálogo sin `meta` → Cinemeta → T1 E1, T2 E1 → enlaces del otro add-on. Sin errores. **Sin probar con un add-on real** (no se sabe cuál usa el usuario).
+
 ## Pendiente
 1. Que el usuario saque api_id/api_hash en my.telegram.org, inicie sesión en Ajustes y pruebe sus bots (si algo falla, mirar la consola del navegador).
 2. Probar en su Android, iPhone y iPad (Ajustes → Diagnóstico) y ajustar lo que salga.
