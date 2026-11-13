@@ -2,7 +2,7 @@
 const App = (() => {
   const $ = (s, r = document) => r.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const VERSION = '0.4.2';
+  const VERSION = '0.5.0';
   const pl = (n, [one, many]) => `${n} ${n === 1 ? one : many}`;
   const DEF_LISTS = ['Leyendo', 'Pendiente', 'Favoritos', 'Abandonado'];
   const getLists = async () => DB.getKV('lists', DEF_LISTS);
@@ -205,7 +205,7 @@ const App = (() => {
         const wish = (await Catalog.wish()).filter(w => w.kind === kind);
         body += cards('wish', kind === 'anime' ? 'Quiero verlo' : 'Quiero leerlo', wish);
         try { for (const [id, title, list] of await Catalog.home(kind)) body += cards('c' + id, title, list); } catch (e) { body += fail(e); }
-        const own = await Addons.home();
+        const own = await Addons.home(kind);
         own.forEach(({ addon, title, results, error }, i) => { body += error ? `<h2 class="sec">${esc(title)} <span class="tiny">Error: ${esc(error)}</span></h2>` : cards('a' + i, esc(title), results.map(r => { const c = { ...r, sourceName: addon.name, id: 'r:' + addon.id + ':' + r.id }; previews.set(c.id, c); return c; })); });
         for (const { addon, results } of await Addons.search('', '')) if (addon.type === 'streaming' && !addon.catalog && results.length) body += cards('s' + addon.id, esc(addon.name), results.map(r => { const c = { ...r, sourceName: addon.name, id: 'r:' + addon.id + ':' + r.id }; previews.set(c.id, c); return c; }));
         if (!addons.some(a => a.type !== 'telegram')) body += `<p class="tiny ex-foot">El catálogo muestra fichas, tráileres y dónde verlo de forma oficial. Para ver o descargar episodios: tus bots de Telegram o un add-on que instales en <a href="#" data-act="addAddon" style="color:var(--ac)">+ Añadir add-on</a>.</p>`;
@@ -246,10 +246,10 @@ const App = (() => {
       const hasDemo = (await DB.all('series')).some(s => s.demo);
       const autoClean = await DB.getKV('autoClean', false), autoMeta = await DB.getKV('autoMeta', true);
       const sp = await Space.info();
-      const icon = a => a.type === 'telegram' ? `<div class="ico tg">${tgIcon}</div>` : a.logo ? `<div class="ico st"><img src="${esc(a.logo)}" alt=""></div>` : `<div class="ico st"><svg viewBox="0 0 24 24"><path d="M3 6h18v12H3z"/><path d="M10 9l5 3-5 3z"/></svg></div>`;
+      const icon = a => a.type === 'archive' ? `<div class="ico st ia">IA</div>` : a.type === 'telegram' ? `<div class="ico tg">${tgIcon}</div>` : a.logo ? `<div class="ico st"><img src="${esc(a.logo)}" alt=""></div>` : `<div class="ico st"><svg viewBox="0 0 24 24"><path d="M3 6h18v12H3z"/><path d="M10 9l5 3-5 3z"/></svg></div>`;
       return `<div class="cols">
         <div class="panel"><h3>Add-ons <button class="btn sm primary" data-act="addAddon">+ Añadir</button></h3>
-          <div class="list">${addons.map(a => `<div class="row">${icon(a)}<div class="grow"><b>${esc(a.name)}</b><span class="tiny">${a.type === 'telegram' ? 'Bot de Telegram · ' + esc(a.bot) : (a.type === 'stremio' ? 'Add-on Stremio' : 'Streaming') + (a.builtin ? ' · incluido' : '')}</span></div>
+          <div class="list">${addons.map(a => `<div class="row">${icon(a)}<div class="grow"><b>${esc(a.name)}</b><span class="tiny">${a.type === 'telegram' ? 'Bot de Telegram · ' + esc(a.bot) : (a.type === 'stremio' ? 'Add-on Stremio' + (a.hasSubs && !a.hasStream ? ' · subtítulos' : '') : a.type === 'archive' ? 'Dominio público y licencias libres' : 'Streaming') + (a.builtin ? ' · incluido' : '')}</span></div>
             <button class="switch ${a.enabled ? 'on' : ''}" data-toggle="${esc(a.id)}" title="Activar/desactivar"></button>
             <button class="btn sm ghost" data-remove="${esc(a.id)}" title="Quitar">✕</button></div>`).join('') || '<p class="muted">Sin add-ons.</p>'}</div>
           <p class="tiny" style="margin-top:8px">Acepta tus bots, add-ons con formato de Stremio (pega la URL de su manifest.json) y catálogos propios (docs/ADDONS.md).</p></div>
@@ -328,7 +328,7 @@ const App = (() => {
     if (ui.dSort === 'desc') list.reverse();
     const items = list.map(it => {
       const frac = it.total && !it.done ? it.pos / it.total : 0;
-      const sub = remote ? (it.have ? 'En tu biblioteca' : fmtSize(it.size)) : (it.remote || it.removed) && !it.fileKey && !it.pageKeys ? (it.done ? (s.kind === 'anime' ? 'Visto' : 'Leído') + ' · ' : '') + 'No está en este dispositivo' : it.done ? (s.kind === 'anime' ? 'Visto' : 'Leído') : frac ? (s.kind === 'anime' ? fmtTime(it.pos) + ' de ' + fmtTime(it.total) : `Pág. ${it.pos + 1} de ${it.total}`) : fmtSize(it.size);
+      const sub = remote ? (it.have ? 'En tu biblioteca' : it.size ? fmtSize(it.size) : (s.kind === 'anime' ? 'Online o descarga' : 'Leer o descargar')) : (it.remote || it.removed) && !it.fileKey && !it.pageKeys ? (it.done ? (s.kind === 'anime' ? 'Visto' : 'Leído') + ' · ' : '') + 'No está en este dispositivo' : it.done ? (s.kind === 'anime' ? 'Visto' : 'Leído') : frac ? (s.kind === 'anime' ? fmtTime(it.pos) + ' de ' + fmtTime(it.total) : `Pág. ${it.pos + 1} de ${it.total}`) : fmtSize(it.size);
       return `<div class="ep ${it.done ? 'done' : ''} ${cur?.id === it.id ? 'cur' : ''}">
         <button class="ep-btn" data-item="${remote ? 'r' + it.num : esc(it.id)}"><span class="n">${it.num}</span>
         <span class="grow"><b>${esc(it.title)}</b><span class="tiny">${sub}</span>${frac ? `<div class="mini"><i style="width:${frac * 100}%"></i></div>` : ''}</span></button>
@@ -463,7 +463,8 @@ const App = (() => {
     progress('Buscando enlaces…');
     let ss; try { ss = await Addons.streams(remote, it); $('#toast').classList.remove('on'); } catch (e) { return toast('No se pudieron cargar los enlaces: ' + e.message); }
     if (!ss.length) return toast('Tus add-ons no tienen enlaces para este episodio');
-    const playUrl = st => { const ser = { id: 'tmp', title: s.title, kind: 'anime' }; Player.open({ id: 'tmp-' + it.num, seriesId: 'tmp', num: it.num, title: it.title, url: st.url, total: 0, pos: 0 }, ser); };
+    const subsP = Promise.race([Addons.subtitles(it).catch(() => []), new Promise(r => setTimeout(() => r([]), 4000))]);
+    const playUrl = async st => { const ser = { id: 'tmp', title: s.title, kind: 'anime' }; Player.open({ id: 'tmp-' + it.num, seriesId: 'tmp', num: it.num, title: it.title, url: st.url, total: 0, pos: 0, subUrls: await subsP }, ser); };
     const ok = ss.filter(x => x.url || x.yt || x.ext);
     if (!ok.length && ss.every(x => x.error)) return toast(ss[0].label);
     if (ok.length === 1 && ok[0].url && !ok[0].hls) return playUrl(ok[0]);
@@ -478,6 +479,7 @@ const App = (() => {
     const { s, remote } = ui.detail;
     if (remote) {
       const it = s.items.find(i => 'r' + i.num === key);
+      if (!it) return;
       if (it.have) { const sid = 'src-' + remote.id + '-' + ridOf(s.id); const local = await DB.get('items', sid + '-' + it.num); const ser = await DB.get('series', sid); return play(ser, local); }
       if (remote.type === 'stremio') return stremioPlay(remote, s, it);
       // Ver online sin descargar
@@ -884,6 +886,10 @@ const App = (() => {
     bind();
     heroTick();
     if (!(await DB.getKV('v3'))) { await Demo.clear(); await DB.setKV('v3', true); await DB.setKV('demoSeeded', true); }
+    if (!(await DB.getKV('iaAdded'))) { // fuente legal incluida (se puede desactivar o quitar en Ajustes)
+      await DB.put('addons', { id: 'archive', type: 'archive', name: 'Internet Archive', enabled: true, builtin: true, desc: 'Animación, películas y cómics de dominio público o con licencia libre.' });
+      await DB.setKV('iaAdded', true);
+    }
     await go(ui.view);
     Space.persist();
     Notify.startLoop(() => { if (ui.view === 'inicio') render(); });

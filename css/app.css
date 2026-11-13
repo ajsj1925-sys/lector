@@ -510,3 +510,4 @@ details.howto a{color:var(--ac)}
 .ep-grid button:hover{background:var(--ac);color:#fff;border-color:var(--ac)}
 .eps-range{flex-wrap:nowrap;overflow-x:auto;margin-bottom:8px;scrollbar-width:none}
 .eps-range .chip{flex:none}
+.ico.ia{background:#111;color:#fff;font:800 13px var(--font-d);display:grid;place-items:center;letter-spacing:.5px}

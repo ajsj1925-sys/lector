@@ -151,6 +151,17 @@ Se le propusieron 4 fuentes legales y aprobó 3 (sin el archivo de dominio públ
 **Torrents:** se listan pero desactivados. Una web no puede conectarse a la red BitTorrent (solo navegador, sin servidor); si el add-on da enlaces directos (http), se ven.
 **Probado** (Playwright, add-ons simulados): add-on solo-enlaces + ficha AniList → Kitsu → `stream/series/kitsu:12:101` y reproduce; add-on solo-catálogo sin `meta` → Cinemeta → T1 E1, T2 E1 → enlaces del otro add-on. Sin errores. **Sin probar con un add-on real** (no se sabe cuál usa el usuario).
 
+## 2026-11-13 · v0.5.0 · Internet Archive incluido y add-ons de subtítulos
+**Contexto:** el usuario quería reproducir torrents en Lector. No se hace: una web no puede usar la red BitTorrent sin un servidor intermedio, y un reproductor de torrents valdría para cualquier add-on de torrents. **Decisión acordada:** 1) fuente legal integrada de Internet Archive, por enlace directo (sin torrent, funciona también en iPhone/iPad); 2) los add-ons siguen abiertos (el usuario pone los que quiera); los enlaces torrent salen en la lista pero desactivados.
+
+| Qué | Cómo (archivos) |
+|---|---|
+| Internet Archive | `js/archive.js` (nuevo). `advancedsearch.php` + `/metadata/<id>`; portadas `/services/img/<id>`. **Solo** obras con `licenseurl` de dominio público o Creative Commons, más las colecciones `classic_cartoons`, `feature_films` (animación) y `goldenagecomics`. Filas en Explorar (anime: animación libre, dibujos clásicos, anime con licencia libre, películas; manga: cómics PD, manga con licencia libre, cómics clásicos) y búsqueda. Episodios: un vídeo original por episodio, elige la versión MP4/H.264 si existe. Cómics: cada CBZ/CBR/CB7/CBT/PDF/EPUB original es un capítulo. Caché 12 h (`kv ia:*`). Add-on `type:"archive"`, id `archive`, se añade una vez al arrancar (`kv iaAdded`); se puede desactivar o quitar. |
+| Add-ons de subtítulos | `js/addons.js`: recurso Stremio `subtitles` (`hasSubs`, `subPrefixes`). `Addons.subtitles(it)` pregunta a todos; ordena español → inglés → resto, máx. 8 (2 por idioma). `js/player.js`: `loadSubs(keys, urls)` baja SRT/VTT/ASS por URL y los pasa a WebVTT. En `stremioPlay` se piden en paralelo (máx. 4 s de espera). |
+| Arreglos | Pulsar un capítulo inexistente daba error; tamaño "0 MB" → "Online o descarga". |
+
+**Probado** (Playwright, archive.org y add-on de subtítulos simulados): filas de anime y cómics, ficha con episodios (elige MP4 derivado del AVI), ver online, descargar a la biblioteca, cómic CBT abre en el lector, búsqueda, subtítulos "Español · Subs" e "Inglés · Subs" cargados en el reproductor. **Sin probar con archive.org real** (sin red en el entorno de pruebas): comprobar en el dispositivo que las filas salen con contenido y que la descarga funciona (depende de que archive.org permita CORS en sus descargas).
+
 ## Pendiente
 1. Que el usuario saque api_id/api_hash en my.telegram.org, inicie sesión en Ajustes y pruebe sus bots (si algo falla, mirar la consola del navegador).
 2. Probar en su Android, iPhone y iPad (Ajustes → Diagnóstico) y ajustar lo que salga.

@@ -81,6 +81,9 @@ Desde v0.4.2, como en Stremio, **una fuente da los capítulos y otra los enlaces
 - En las fichas del catálogo de anime sale **Episodios**: Lector busca la serie en Kitsu y pide los enlaces con `kitsu:<id>:<episodio>`
   (películas: `kitsu:<id>`), que es lo que usan los add-ons de anime.
 
+**Subtítulos** (desde v0.5.0): los add-ons con recurso `subtitles` (`/subtitles/{type}/{id}.json`) se consultan al ver un episodio
+de Stremio; se cargan hasta 8 pistas, primero español.
+
 El add-on tiene que permitir CORS (los de Stremio normalmente lo hacen).
 
 Solo para contenido que tengas derecho a usar (tuyo, libre o con licencia).

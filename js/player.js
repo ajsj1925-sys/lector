@@ -66,7 +66,7 @@ const Player = (() => {
       src = URL.createObjectURL(f.blob); st.urls.push(src);
     }
     v.src = src;
-    await loadSubs(item.subKeys || []);
+    await loadSubs(item.subKeys || [], item.subUrls || []);
     const live = f => (...a) => { if (st?.v === v) f(...a); }; // tras cerrar, el vídeo aún emite eventos: se ignoran
     v.addEventListener('loadedmetadata', live(() => { if (!item.done && item.pos > 5 && item.pos < v.duration - 10) v.currentTime = item.pos; v.play().catch(() => ui(true)); }));
     let last = 0;
@@ -82,7 +82,7 @@ const Player = (() => {
     ui(true); hideSoon();
   }
 
-  async function loadSubs(keys) {
+  async function loadSubs(keys, urls = []) {
     const v = st.v;
     v.querySelectorAll('track').forEach(t => t.remove());
     st.subs = [];
@@ -94,6 +94,15 @@ const Player = (() => {
       Object.assign(tr, { kind: 'subtitles', src: tu, srclang: 'es', label: s.name.replace(/\.(srt|vtt|ass|ssa)$/i, '') });
       v.appendChild(tr); st.subs.push(tr);
     }
+    // subtítulos de add-ons (enlaces): se bajan en paralelo; si alguno falla, se salta
+    const got = await Promise.all(urls.map(u => fetch(u.url).then(r => r.ok ? r.text() : null).catch(() => null)));
+    got.forEach((t, i) => {
+      if (!t || !st) return;
+      const tu = URL.createObjectURL(new Blob([Subs.toVTT(t, urls[i].url.split('?')[0])], { type: 'text/vtt' })); st.urls.push(tu);
+      const tr = document.createElement('track');
+      Object.assign(tr, { kind: 'subtitles', src: tu, srclang: urls[i].lang.slice(0, 2) || 'es', label: urls[i].label });
+      v.appendChild(tr); st.subs.push(tr);
+    });
     const pref = await DB.getKV('subOn', true);
     setTimeout(() => setSub(pref && st?.subs.length ? 0 : -1), 50);
   }

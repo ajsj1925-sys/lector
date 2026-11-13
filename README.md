@@ -22,6 +22,7 @@ todo lo que añades o descargas se guarda en el navegador del dispositivo (Index
 | `js/tg.js` | Telegram con tu cuenta: login, chat con bots, descargas, sincronizar |
 | `js/notify.js` | Avisos de capítulos nuevos |
 | `js/meta.js` | Información de AniList |
+| `js/archive.js` | Fuente incluida: Internet Archive (dominio público y licencias libres) |
 | `js/catalog.js` | Catálogo de Explorar (AniList): tendencias, temporada, géneros, ficha, tráiler, dónde verlo |
 | `js/backup.js` | Copia de seguridad y mezcla de progreso |
 | `js/space.js` | Espacio del dispositivo y diagnóstico |

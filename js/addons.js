@@ -11,7 +11,7 @@ const Addons = (() => {
   function validate(m) {
     if (!m || typeof m !== 'object') throw new Error('El add-on no es un JSON válido');
     if (!m.name) throw new Error('Falta "name"');
-    if (!['streaming', 'telegram', 'stremio'].includes(m.type)) throw new Error('"type" debe ser "streaming", "stremio" o "telegram"');
+    if (!['streaming', 'telegram', 'stremio', 'archive'].includes(m.type)) throw new Error('"type" debe ser "streaming", "stremio" o "telegram"');
     if (m.type === 'stremio' && !m.base) throw new Error('Falta la dirección del add-on de Stremio');
     if (m.type === 'streaming' && !m.search) throw new Error('Un add-on de streaming necesita "search"');
     if (m.type === 'telegram' && !m.bot) throw new Error('Un add-on de Telegram necesita "bot" (ej. @mibot)');
@@ -49,7 +49,7 @@ const Addons = (() => {
     const pref = name => { const r = (man.resources || []).find(r => typeof r === 'object' && r.name === name); return r?.idPrefixes || man.idPrefixes || []; };
     return {
       type: 'stremio', id: 'st-' + String(man.id || DB.uid()).replace(/[^\w.-]/g, '_'), name: man.name || 'Add-on', version: man.version, desc: man.description || '',
-      logo: man.logo, base, manifestUrl: man.manifestUrl, catalogs: (man.catalogs || []).slice(0, 12), hasMeta: res.includes('meta'), hasStream: res.includes('stream'), metaPrefixes: pref('meta'), streamPrefixes: pref('stream'),
+      logo: man.logo, base, manifestUrl: man.manifestUrl, catalogs: (man.catalogs || []).slice(0, 12), hasMeta: res.includes('meta'), hasStream: res.includes('stream'), metaPrefixes: pref('meta'), streamPrefixes: pref('stream'), hasSubs: res.includes('subtitles'), subPrefixes: pref('subtitles'),
     };
   }
   const stFetch = async (a, path) => { const r = await fetch(a.base + '/' + path); if (!r.ok) throw new Error('La fuente respondió ' + r.status); return r.json(); };
@@ -58,10 +58,11 @@ const Addons = (() => {
   const canSearch = c => (c.extra || []).some(e => e.name === 'search') || (c.extraSupported || []).includes('search');
 
   /* Primeras filas de cada add-on (lo que se ve en Explorar sin buscar nada) */
-  async function home() {
+  async function home(kind) {
     const out = [];
-    for (const a of (await list()).filter(a => a.enabled && (a.type === 'stremio' || (a.type === 'streaming' && a.catalog)))) {
+    for (const a of (await list()).filter(a => a.enabled && (a.type === 'stremio' || a.type === 'archive' || (a.type === 'streaming' && a.catalog)))) {
       try {
+        if (a.type === 'archive') { for (const r of await Archive.home(kind)) out.push({ addon: a, title: 'Internet Archive · ' + r.title, results: r.results, error: r.error }); continue; }
         if (a.type === 'streaming') { const r = await fetch(a.catalog); out.push({ addon: a, title: a.name, results: (await r.json()).results || [] }); continue; }
         for (const c of a.catalogs.filter(c => !needsExtra(c)).slice(0, 3)) {
           const j = await stFetch(a, `catalog/${c.type}/${encodeURIComponent(c.id)}.json`);
@@ -90,6 +91,17 @@ const Addons = (() => {
     return res.flat();
   }
 
+  /* Subtítulos de un episodio: add-ons de Stremio con recurso "subtitles" (p. ej. OpenSubtitles).
+     Primero español, luego inglés, luego el resto; como mucho 8. */
+  async function subtitles(it) {
+    const all = (await list()).filter(a => a.enabled && a.type === 'stremio' && a.hasSubs && okPrefix(a.subPrefixes, it.vid));
+    const res = await Promise.all(all.map(a => stFetch(a, `subtitles/${it.stype}/${encodeURIComponent(it.vid)}.json`).then(j => (j.subtitles || []).map(s => ({ url: s.url, lang: (s.lang || '').toLowerCase(), label: (LANG[(s.lang || '').toLowerCase()] || s.lang || 'Subtítulos') + ' · ' + a.name }))).catch(() => [])));
+    const rank = l => l.startsWith('spa') || l.startsWith('es') ? 0 : l.startsWith('eng') || l === 'en' ? 1 : 2;
+    const seen = {};
+    return res.flat().filter(s => s.url).sort((a, b) => rank(a.lang) - rank(b.lang)).filter(s => (seen[s.lang] = (seen[s.lang] || 0) + 1) <= 2).slice(0, 8);
+  }
+  const LANG = { spa: 'Español', es: 'Español', 'es-419': 'Español (Latam)', 'spa-419': 'Español (Latam)', eng: 'Inglés', en: 'Inglés', jpn: 'Japonés', ja: 'Japonés', por: 'Portugués', pob: 'Portugués (BR)', fre: 'Francés', fra: 'Francés', ita: 'Italiano', ger: 'Alemán', deu: 'Alemán' };
+
   /* Capítulos de una serie de Stremio cuando la fuente no los da */
   async function metaFor(type, mid, src) {
     const others = (await list()).filter(a => a.enabled && a.type === 'stremio' && a.hasMeta && okPrefix(a.metaPrefixes, mid));
@@ -112,10 +124,11 @@ const Addons = (() => {
   /* Busca en todos los add-ons de streaming activos a la vez */
   async function search(q, kind) {
     const out = [];
-    for (const a of (await list()).filter(a => a.enabled && (a.type === 'streaming' || (a.type === 'stremio' && q && a.catalogs.some(canSearch))))) {
+    for (const a of (await list()).filter(a => a.enabled && (a.type === 'streaming' || (a.type === 'archive' && q) || (a.type === 'stremio' && q && a.catalogs.some(canSearch))))) {
       try {
         let results;
-        if (a.id === 'demo-stream') {
+        if (a.type === 'archive') results = await Archive.search(q, kind);
+        else if (a.id === 'demo-stream') {
           const ql = q.toLowerCase();
           results = Demo.CATALOG.filter(c => !ql || c.title.toLowerCase().includes(ql));
         } else if (a.type === 'stremio') {
@@ -141,6 +154,7 @@ const Addons = (() => {
       const c = Demo.CATALOG.find(c => c.id === id);
       return { ...c, items: Array.from({ length: c.count }, (_, i) => ({ num: i + 1, title: (c.kind === 'anime' ? 'Episodio ' : 'Capítulo ') + (i + 1), demo: true, size: c.kind === 'anime' ? 2.8e8 : 2e7 })) };
     }
+    if (addon.type === 'archive') return Archive.series(id);
     if (addon.type === 'stremio') {
       const [type, mid] = [id.slice(0, id.indexOf('|')), id.slice(id.indexOf('|') + 1)];
       const prev = pv ? { name: pv.title, poster: pv.cover, description: pv.desc } : {};
@@ -156,7 +170,7 @@ const Addons = (() => {
     return r.json();
   }
 
-  return { list, install, toggle, remove, search, series, validate, home, streams, fromStremio };
+  return { list, install, toggle, remove, search, series, validate, home, streams, fromStremio, subtitles };
 })();
 
 /* ---------- Descargas ---------- */
