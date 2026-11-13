@@ -16,12 +16,15 @@ const Meta = (() => {
     });
     if (!r.ok) throw new Error(r.status === 429 ? 'AniList: demasiadas búsquedas, espera un minuto' : 'AniList no responde (' + r.status + ')');
     const j = await r.json();
-    return (j.data?.Page?.media || []).map(m => ({
+    return (j.data?.Page?.media || []).map(toInfo);
+  }
+  function toInfo(m) {
+    return {
       id: m.id, url: m.siteUrl, title: m.title.userPreferred || m.title.romaji, titles: [m.title.romaji, m.title.english, m.title.native, ...(m.synonyms || [])].filter(Boolean),
       cover: m.coverImage?.extraLarge || m.coverImage?.large, color: m.coverImage?.color, banner: m.bannerImage,
       desc: clean(m.description), genres: (m.genres || []).map(g => GENRES[g] || g), year: m.seasonYear || m.startDate?.year,
       score: m.averageScore, status: STATUS[m.status] || m.status, format: FORMAT[m.format] || m.format, count: m.episodes || m.chapters || null,
-    }));
+    };
   }
 
   /* Descarga la imagen y la guarda reducida dentro de la serie (para que funcione sin conexión) */
@@ -57,5 +60,5 @@ const Meta = (() => {
       await apply(seriesId, hit); return true;
     } catch { return false; }
   }
-  return { search, apply, auto };
+  return { search, apply, auto, toInfo };
 })();

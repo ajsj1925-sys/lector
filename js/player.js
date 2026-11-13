@@ -67,15 +67,16 @@ const Player = (() => {
     }
     v.src = src;
     await loadSubs(item.subKeys || []);
-    v.addEventListener('loadedmetadata', () => { if (!item.done && item.pos > 5 && item.pos < v.duration - 10) v.currentTime = item.pos; v.play().catch(() => ui(true)); });
+    const live = f => (...a) => { if (st?.v === v) f(...a); }; // tras cerrar, el vídeo aún emite eventos: se ignoran
+    v.addEventListener('loadedmetadata', live(() => { if (!item.done && item.pos > 5 && item.pos < v.duration - 10) v.currentTime = item.pos; v.play().catch(() => ui(true)); }));
     let last = 0;
-    v.addEventListener('timeupdate', () => { paint(); if (Date.now() - last > 4000) { last = Date.now(); save(); } });
-    v.addEventListener('progress', paint);
-    v.addEventListener('play', () => { $('#pPlay').innerHTML = ico(I.pause); hideSoon(); });
-    v.addEventListener('pause', () => { $('#pPlay').innerHTML = ico(I.play); ui(true); save(); });
-    v.addEventListener('ended', () => { save(true); upNext(); });
-    v.addEventListener('waiting', () => el().classList.add('loading'));
-    v.addEventListener('playing', () => el().classList.remove('loading'));
+    v.addEventListener('timeupdate', live(() => { paint(); if (Date.now() - last > 4000) { last = Date.now(); save(); } }));
+    v.addEventListener('progress', live(paint));
+    v.addEventListener('play', live(() => { $('#pPlay').innerHTML = ico(I.pause); hideSoon(); }));
+    v.addEventListener('pause', live(() => { $('#pPlay').innerHTML = ico(I.play); ui(true); save(); }));
+    v.addEventListener('ended', live(() => { save(true); upNext(); }));
+    v.addEventListener('waiting', live(() => el().classList.add('loading')));
+    v.addEventListener('playing', live(() => el().classList.remove('loading')));
     v.addEventListener('error', onError);
     App.touch(series, item);
     ui(true); hideSoon();

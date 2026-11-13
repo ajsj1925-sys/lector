@@ -473,3 +473,34 @@ details.howto summary{cursor:pointer;font-weight:700}
 details.howto ol{margin:8px 0 0 18px;display:flex;flex-direction:column;gap:4px;color:var(--tx2)}
 details.howto a{color:var(--ac)}
 @media (max-width:720px){.tgchat{padding:0}.tg-box{border-radius:0;height:100%;border:0}.tg-box header{padding-top:calc(10px + var(--safe-t))}}
+
+/* ---------- v0.4: catálogo en Explorar, ficha del catálogo, YouTube ---------- */
+.ex-tools input[type=search]{flex:1;min-width:180px;max-width:460px}
+.genres-row{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:-8px -28px 16px;padding:0 28px}
+.genres-row::-webkit-scrollbar{display:none}
+.genres-row .chip{flex:none}
+.bots{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin:0 0 6px}
+.bot{display:flex;gap:10px;align-items:center;background:var(--bg3);border:1px solid var(--line);border-radius:14px;padding:7px 14px 7px 7px;flex:none;text-align:left;max-width:260px}
+.bot:hover{background:var(--bg4)}
+.bot .ico{width:32px;height:32px;border-radius:9px}.bot .ico svg{width:18px;height:18px}
+.bot b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.empty.small{padding:18px 16px;margin-bottom:6px}.empty.small .btn{margin-top:10px}
+.cat-err,.ex-foot{margin:18px 0}
+.ico.st img{width:100%;height:100%;object-fit:cover;border-radius:inherit}
+.d-actions{flex-wrap:wrap}
+.d-actions .btn{flex:1 1 auto}
+.d-actions .btn svg{width:16px;height:16px}
+.d-sub{font:700 14px var(--font-d);margin:4px 8px 8px;display:flex;gap:8px;align-items:baseline}
+.d-body>.tiny{padding:0 8px 8px}
+.wlinks{display:flex;flex-wrap:wrap;gap:8px;padding:0 8px 8px}
+.wlink{text-decoration:none;display:flex;gap:6px;align-items:center;padding:8px 12px;border-radius:12px;background:var(--bg3);border:1px solid var(--line);font-size:13px;color:var(--tx)}
+.wlink:hover{background:var(--bg4)}
+.wlink .tiny{background:var(--bg4);padding:1px 6px;border-radius:6px;font-size:11px}
+.wlink.free{border-color:var(--ac)}
+.wlink.free .tiny:last-child{background:var(--ac);color:#fff}
+.rail.mini{margin:0;padding:2px 8px 10px;grid-auto-columns:112px;gap:12px;scroll-padding:0 8px}
+.rail.mini .card b{font-size:12px}
+.sheet.wide{width:min(880px,100%)}
+.yt{aspect-ratio:16/9;border-radius:12px;overflow:hidden;background:#000}
+.yt iframe{width:100%;height:100%;border:0;display:block}
+@media (max-width:720px){.genres-row{margin:-8px -16px 14px;padding:0 16px}}

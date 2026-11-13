@@ -1,7 +1,8 @@
 # Add-ons de Lector
 
 Un add-on es una **fuente** de anime o manga. Se instala en **Ajustes → Add-ons → + Añadir**.
-Hay dos tipos.
+Hay tres tipos. Lector no trae ninguno de contenido: el catálogo de Explorar (AniList) solo muestra fichas,
+tráileres y enlaces oficiales.
 
 ## 1. Bot de Telegram (`"type": "telegram"`)
 
@@ -55,10 +56,25 @@ El servidor de la fuente tiene que permitir CORS (`Access-Control-Allow-Origin: 
   ]
 }
 ```
+Opcional: `"catalog": "https://ejemplo.com/api/destacados"` (misma respuesta que `search`) para que salga una fila en Explorar sin buscar nada.
+
 Para manga, cada elemento puede traer `"pages": ["https://…/1.jpg", "https://…/2.jpg"]` en lugar de `url`,
 o una `url` a un `.cbz`.
 
 Al pulsar **Descargar**, Lector baja el archivo y lo guarda en el dispositivo.
 **Ver online** sin descargar: con `url` (vídeo o .cbz) o `pages` (lista de imágenes).
+
+## 3. Add-ons de Stremio (`"type": "stremio"`, desde v0.4.0)
+
+Lector entiende el protocolo abierto de add-ons de Stremio. En **+ Añadir → Stremio / streaming** pega la URL
+de su `manifest.json` (vale también `stremio://…`). Lector lo convierte solo:
+
+- **Catálogos** (`/catalog/{type}/{id}.json`): los 3 primeros sin filtros obligatorios salen como filas en Explorar.
+- **Búsqueda** (`/catalog/{type}/{id}/search={q}.json`): en los catálogos que la admiten.
+- **Ficha** (`/meta/{type}/{id}.json`): episodios ordenados por temporada y número (`T1 E2 · título`).
+- **Enlaces** (`/stream/{type}/{videoId}.json`): `url` directa → se reproduce o descarga; `ytId` → YouTube incrustado;
+  `externalUrl` → se abre fuera; torrent (`infoHash`) → no compatible. HLS (`.m3u8`) se ve en iPhone/iPad, no en Chrome.
+
+El add-on tiene que permitir CORS (los de Stremio normalmente lo hacen).
 
 Solo para contenido que tengas derecho a usar (tuyo, libre o con licencia).

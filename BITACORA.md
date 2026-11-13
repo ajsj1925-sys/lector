@@ -123,8 +123,27 @@ tema claro, toque lateral en móvil. Sin errores de consola.
 
 **Librerías incluidas** (`vendor/`, con sus licencias): pdf.js 3.2.146 (Apache-2.0), libarchive.js (MIT), mp4-muxer (MIT). Externas al usarlas: GramJS 2.26.22 y buffer 6.0.3 vía esm.sh (el service worker las guarda para usarlas sin conexión).
 
+## 2026-11-13 · v0.4.0 · Catálogo en Explorar y add-ons abiertos
+**Petición:** "que se vean los primeros animes y demás del catálogo; busca add-ons gratis y méteselos" (anime y manga).
+**Decisión:** no se incluyen add-ons que cojan series de webs que las suben sin permiso (AnimeFLV, Consumet, scrapers de MangaDex, etc.).
+Se le propusieron 4 fuentes legales y aprobó 3 (sin el archivo de dominio público), y pidió que la app acepte también otros add-ons.
+
+| Qué | Cómo (archivos) |
+|---|---|
+| Catálogo en Explorar | `js/catalog.js` (nuevo). AniList GraphQL, una sola petición con alias para 4 filas: Tendencias, Esta temporada (manga: En publicación), Más populares, Mejor valorados. Selector Anime/Manga, fila de géneros (14), búsqueda. Caché 6 h en `kv` (`cat:*`) → abre al momento y sin conexión muestra lo último. `isAdult:false` siempre. |
+| Inicio | Filas "Anime en tendencia" y "Manga en tendencia" al final (si no hay conexión ni caché, no salen; máx. 6 s de espera). Con biblioteca vacía: aviso pequeño + esas filas. |
+| Ficha del catálogo | Ids `c:<anilistId>` → `catalogDetail()` en `js/app.js`: banner, datos, estudio, próximo episodio, géneros, sinopsis, "Si te gusta, prueba" (recomendaciones), botones Tráiler, "Quiero verlo/leerlo" (lista `kv.wish`, sale como fila en Explorar), "Pedir a mi bot" (abre el chat con el título escrito), "Buscar en mis add-ons", y "En tu biblioteca" si ya la tienes (por `meta.id`). |
+| Dónde verlo / leerlo | `externalLinks` de AniList tipo STREAMING (oficiales: Crunchyroll, Netflix, MANGA Plus…), primero YouTube y los de idioma español. |
+| YouTube oficial | Enlaces de YouTube de AniList marcados "Gratis"; si son vídeo o lista se ven incrustados (`ytSheet`, youtube-nocookie), si son canal se abren fuera. Aviso: pueden no estar disponibles en todos los países. Tráileres también incrustados. |
+| Add-ons de Stremio | `js/addons.js`: al instalar una URL (o `stremio://`) cuyo JSON es un manifest de Stremio se convierte a `type:"stremio"` (`fromStremio`). Filas de catálogos en Explorar (`Addons.home`), búsqueda, ficha con temporadas/episodios, enlaces (`Addons.streams`): url directa → reproductor o descarga; ytId → YouTube; externalUrl → fuera; torrent → no compatible. Ids `r:<addon>:<tipo>|<id>` (el id puede llevar `:`; `ridOf()` en app.js). Formato propio de streaming: nuevo campo opcional `catalog`. Documentado en `docs/ADDONS.md`. |
+| Arreglo | `js/player.js`: tras cerrar el reproductor el vídeo emitía eventos que daban error en consola; ahora se ignoran (`live()`). |
+
+**Probado** (Playwright, PC y móvil, AniList y un add-on Stremio simulados): filas del catálogo en Inicio y Explorar, manga, géneros, búsqueda (catálogo + add-on), ficha con enlaces y recomendaciones, guardar, tráiler y lista de YouTube incrustados, instalar `stremio://…`, fila del add-on, episodios ordenados, hoja de enlaces (torrent desactivado) y reproducción. Sin errores de consola.
+
 ## Pendiente
 1. Que el usuario saque api_id/api_hash en my.telegram.org, inicie sesión en Ajustes y pruebe sus bots (si algo falla, mirar la consola del navegador).
 2. Probar en su Android, iPhone y iPad (Ajustes → Diagnóstico) y ajustar lo que salga.
 3. EPUB de solo texto (novelas ligeras): no soportado.
 4. Avisos con la app cerrada: necesitaría un servidor (no se quiere).
+5. Comprobar el catálogo con la conexión real de AniList en sus dispositivos (en la prueba estaba simulado).
+6. HLS (.m3u8) de add-ons no se ve en Chrome/Android (haría falta hls.js).

@@ -2,12 +2,12 @@
 const App = (() => {
   const $ = (s, r = document) => r.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const VERSION = '0.3.0';
+  const VERSION = '0.4.0';
   const pl = (n, [one, many]) => `${n} ${n === 1 ? one : many}`;
   const DEF_LISTS = ['Leyendo', 'Pendiente', 'Favoritos', 'Abandonado'];
   const getLists = async () => DB.getKV('lists', DEF_LISTS);
   const TITLES = { inicio: 'Inicio', biblioteca: 'Biblioteca', explorar: 'Explorar', descargas: 'Descargas', ajustes: 'Ajustes' };
-  const ui = { view: 'inicio', libKind: 'all', libSort: 'recent', libQ: '', exKind: '', exQ: '', detail: null, dTab: 'eps', dSort: 'asc', dUnread: false, hero: 0, libList: '' };
+  const ui = { view: 'inicio', libKind: 'all', libSort: 'recent', libQ: '', exKind: 'anime', exQ: '', exGenre: '', detail: null, dTab: 'eps', dSort: 'asc', dUnread: false, hero: 0, libList: '' };
   const ACCENTS = ['#ff7a45', '#f43f5e', '#ec4899', '#8b5cf6', '#3b82f6', '#06b6d4', '#10b981', '#f59e0b'];
 
   /* ---------- utilidades ---------- */
@@ -89,6 +89,8 @@ const App = (() => {
     if (series.kind === 'anime') Player.open(item, series, done); else Reader.open(item, series, done);
   }
 
+  const ridOf = id => id.split(':').slice(2).join(':'); // 'r:<addon>:<id de la fuente>' (el id puede llevar ':')
+
   /* ---------- piezas de interfaz ---------- */
   const tag = k => `<span class="tag ${k}">${k}</span>`;
   const playIco = '<svg viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></svg>';
@@ -126,14 +128,20 @@ const App = (() => {
           <button class="btn glass" data-series="${esc(s.id)}">Ficha</button></div></div></div>
       ${list.length > 1 ? `<div class="dots">${list.map((_, k) => `<button data-hero="${k}" class="${k === i ? 'on' : ''}" title="${esc(list[k][0].title)}"></button>`).join('')}</div>` : ''}</section>`;
   }
-  const emptyLib = () => `<div class="empty"><b>Tu biblioteca está vacía</b>Añade archivos de anime o manga desde este dispositivo, o descárgalos desde Explorar.
+  /* Filas del catálogo en Inicio (si no hay conexión ni caché, no se muestran) */
+  async function discover() {
+    const one = async k => { try { const r = await Promise.race([Catalog.home(k), new Promise((_, no) => setTimeout(() => no(new Error('lento')), 6000))]); return r[0][2]; } catch { return []; } };
+    const [an, ma] = await Promise.all([one('anime'), one('manga')]);
+    return railHTML('dA', 'Anime en tendencia', an.map(c => cardHTML(c))) + railHTML('dM', 'Manga en tendencia', ma.map(c => cardHTML(c)));
+  }
+  const emptyLib = small => small ? `<div class="empty small"><b>Tu biblioteca está vacía</b>Añade tus archivos, pídeselos a tus bots o mira el catálogo.<div><button class="btn primary" data-act="import">Añadir archivos</button> <button class="btn" data-go="explorar">Explorar</button></div></div>` : `<div class="empty"><b>Tu biblioteca está vacía</b>Añade archivos de anime o manga desde este dispositivo, o descárgalos desde Explorar.
     <div><button class="btn primary" data-act="import">Añadir archivos</button> <button class="btn" data-go="explorar">Ir a Explorar</button></div></div>`;
 
   /* ---------- vistas ---------- */
   const views = {
     async inicio() {
       const lib = await libraryData();
-      if (!lib.length) return emptyLib();
+      if (!lib.length) return emptyLib(true) + await discover();
       const cont = lib.filter(s => s.lastAt).sort((a, b) => b.lastAt - a.lastAt).map(s => [s, continueItem(s)]).filter(x => x[1]);
       const heroList = cont.slice(0, 5); ui.heroList = heroList;
       const recent = [...lib].sort((a, b) => b.addedAt - a.addedAt).slice(0, 15);
@@ -150,7 +158,8 @@ const App = (() => {
         + railHTML('anime', 'Anime', by('anime').map(s => cardHTML(s)))
         + railHTML('manga', 'Manga', by('manga').map(s => cardHTML(s)))
         + railHTML('fav', 'Favoritos', lib.filter(s => (s.lists || []).includes('Favoritos')).map(s => cardHTML(s)))
-        + railHTML('done', 'Terminados', done.map(s => cardHTML(s)));
+        + railHTML('done', 'Terminados', done.map(s => cardHTML(s)))
+        + await discover();
     },
 
     async biblioteca() {
@@ -174,16 +183,33 @@ const App = (() => {
 
     async explorar() {
       const addons = (await Addons.list()).filter(a => a.enabled);
-      if (!addons.length) return `<div class="empty"><b>No tienes add-ons activos</b>Los add-ons son tus fuentes: bots de Telegram o catálogos de streaming.<div><button class="btn primary" data-act="addAddon">Añadir add-on</button></div></div>`;
       const bots = addons.filter(a => a.type === 'telegram');
-      const head = `<div class="toolbar">
-        <input type="search" id="exQ" placeholder="Buscar en todos tus add-ons" value="${esc(ui.exQ)}" style="max-width:420px">
-        <div class="chips" data-chips="exKind">${[['', 'Todo'], ['anime', 'Anime'], ['manga', 'Manga']].map(([k, l]) => `<button class="chip ${ui.exKind === k ? 'on' : ''}" data-v="${k}">${l}</button>`).join('')}</div></div>`;
-      const botRow = bots.length ? `<h2 class="sec">Tus bots de Telegram</h2><div class="list">${bots.map(b => `<div class="row"><div class="ico tg">${tgIcon}</div><div class="grow"><b>${esc(b.name)}</b><span class="tiny">${esc(b.bot)} · ${esc((b.kinds || []).join(', ') || 'anime y manga')}</span></div><button class="btn sm primary" data-bot="${esc(b.id)}">${ui.exQ ? `Pedir "${esc(ui.exQ)}"` : 'Abrir chat'}</button></div>`).join('')}</div>` : '';
-      const res = await Addons.search(ui.exQ, ui.exKind);
-      const blocks = res.map(({ addon, results, error }) => `<h2 class="sec">${esc(addon.name)} <span class="tiny">${error ? 'Error: ' + esc(error) : results.length + ' resultados'}</span></h2>
-        ${results.length ? `<div class="grid">${results.map(r => cardHTML({ ...r, sourceName: addon.name, id: 'r:' + addon.id + ':' + r.id })).join('')}</div>` : ''}`).join('');
-      return head + botRow + blocks;
+      const kind = ui.exKind === 'manga' ? 'manga' : 'anime', q = ui.exQ.trim();
+      const head = `<div class="toolbar ex-tools">
+        <input type="search" id="exQ" placeholder="Buscar anime o manga…" value="${esc(ui.exQ)}">
+        <div class="seg" data-chips="exKind">${[['anime', 'Anime'], ['manga', 'Manga']].map(([k, l]) => `<button class="${kind === k ? 'on' : ''}" data-v="${k}">${l}</button>`).join('')}</div></div>
+        ${q ? '' : `<div class="chips genres-row" data-chips="exGenre"><button class="chip ${!ui.exGenre ? 'on' : ''}" data-v="">Todo</button>${Catalog.GENRES.map(([g, l]) => `<button class="chip ${ui.exGenre === g ? 'on' : ''}" data-v="${esc(g)}">${l}</button>`).join('')}</div>`}`;
+      const botRow = bots.length ? `<div class="bots">${bots.map(b => `<button class="bot" data-bot="${esc(b.id)}"><span class="ico tg">${tgIcon}</span><span class="grow"><b>${esc(b.name)}</b><span class="tiny">${q ? `Pedir “${esc(q)}”` : esc(b.bot)}</span></span></button>`).join('')}</div>` : '';
+      const fail = e => `<p class="muted cat-err">${esc(e.message)} <button class="chip" data-act="retryCat">Reintentar</button></p>`;
+      const cards = (id, title, list) => railHTML(id, title, list.map(c => cardHTML(c)));
+      let body = '';
+      if (q) {
+        let cat = ''; try { const r = await Catalog.browse(kind, q); cat = r.length ? `<h2 class="sec">Catálogo <span class="count">${r.length}</span></h2><div class="grid">${r.map(c => cardHTML(c)).join('')}</div>` : `<p class="muted">Nada en el catálogo con “${esc(q)}”.</p>`; } catch (e) { cat = fail(e); }
+        const res = await Addons.search(q, kind);
+        body = cat + res.filter(x => x.results.length || x.error).map(({ addon, results, error }) => `<h2 class="sec">${esc(addon.name)} <span class="tiny">${error ? 'Error: ' + esc(error) : results.length + ' resultados'}</span></h2>
+          ${results.length ? `<div class="grid">${results.map(r => cardHTML({ ...r, sourceName: addon.name, id: 'r:' + addon.id + ':' + r.id })).join('')}</div>` : ''}`).join('');
+      } else if (ui.exGenre) {
+        try { const r = await Catalog.browse(kind, '', ui.exGenre); body = `<div class="grid">${r.map(c => cardHTML(c)).join('')}</div>`; } catch (e) { body = fail(e); }
+      } else {
+        const wish = (await Catalog.wish()).filter(w => w.kind === kind);
+        body += cards('wish', kind === 'anime' ? 'Quiero verlo' : 'Quiero leerlo', wish);
+        try { for (const [id, title, list] of await Catalog.home(kind)) body += cards('c' + id, title, list); } catch (e) { body += fail(e); }
+        const own = await Addons.home();
+        own.forEach(({ addon, title, results, error }, i) => { body += error ? `<h2 class="sec">${esc(title)} <span class="tiny">Error: ${esc(error)}</span></h2>` : cards('a' + i, esc(title), results.map(r => ({ ...r, sourceName: addon.name, id: 'r:' + addon.id + ':' + r.id }))); });
+        for (const { addon, results } of await Addons.search('', '')) if (addon.type === 'streaming' && !addon.catalog && results.length) body += cards('s' + addon.id, esc(addon.name), results.map(r => ({ ...r, sourceName: addon.name, id: 'r:' + addon.id + ':' + r.id })));
+        if (!addons.some(a => a.type !== 'telegram')) body += `<p class="tiny ex-foot">El catálogo muestra fichas, tráileres y dónde verlo de forma oficial. Para ver o descargar episodios: tus bots de Telegram o un add-on que instales en <a href="#" data-act="addAddon" style="color:var(--ac)">+ Añadir add-on</a>.</p>`;
+      }
+      return head + botRow + body;
     },
 
     async descargas() {
@@ -219,13 +245,13 @@ const App = (() => {
       const hasDemo = (await DB.all('series')).some(s => s.demo);
       const autoClean = await DB.getKV('autoClean', false), autoMeta = await DB.getKV('autoMeta', true);
       const sp = await Space.info();
-      const icon = a => a.type === 'telegram' ? `<div class="ico tg">${tgIcon}</div>` : `<div class="ico st"><svg viewBox="0 0 24 24"><path d="M3 6h18v12H3z"/><path d="M10 9l5 3-5 3z"/></svg></div>`;
+      const icon = a => a.type === 'telegram' ? `<div class="ico tg">${tgIcon}</div>` : a.logo ? `<div class="ico st"><img src="${esc(a.logo)}" alt=""></div>` : `<div class="ico st"><svg viewBox="0 0 24 24"><path d="M3 6h18v12H3z"/><path d="M10 9l5 3-5 3z"/></svg></div>`;
       return `<div class="cols">
         <div class="panel"><h3>Add-ons <button class="btn sm primary" data-act="addAddon">+ Añadir</button></h3>
-          <div class="list">${addons.map(a => `<div class="row">${icon(a)}<div class="grow"><b>${esc(a.name)}</b><span class="tiny">${a.type === 'telegram' ? 'Bot de Telegram · ' + esc(a.bot) : 'Streaming' + (a.builtin ? ' · incluido' : '')}</span></div>
+          <div class="list">${addons.map(a => `<div class="row">${icon(a)}<div class="grow"><b>${esc(a.name)}</b><span class="tiny">${a.type === 'telegram' ? 'Bot de Telegram · ' + esc(a.bot) : (a.type === 'stremio' ? 'Add-on Stremio' : 'Streaming') + (a.builtin ? ' · incluido' : '')}</span></div>
             <button class="switch ${a.enabled ? 'on' : ''}" data-toggle="${esc(a.id)}" title="Activar/desactivar"></button>
             <button class="btn sm ghost" data-remove="${esc(a.id)}" title="Quitar">✕</button></div>`).join('') || '<p class="muted">Sin add-ons.</p>'}</div>
-          <p class="tiny" style="margin-top:8px">Formato para crear tus propios add-ons: docs/ADDONS.md en la carpeta del proyecto.</p></div>
+          <p class="tiny" style="margin-top:8px">Acepta tus bots, add-ons con formato de Stremio (pega la URL de su manifest.json) y catálogos propios (docs/ADDONS.md).</p></div>
 
         <div class="panel"><h3>Cuenta de Telegram <span class="tiny">${tg.session ? '● Conectada' : 'Sin conectar'}</span></h3>
           ${tg.session ? `<div class="row"><div class="ico tg">${tgIcon}</div><div class="grow"><b>${esc(tg.me?.name || 'Tu cuenta')}</b><span class="tiny">${esc(tg.me?.user ? '@' + tg.me.user : tg.me?.phone ? '+' + tg.me.phone : '')}</span></div><button class="btn sm" data-act="tgLogout">Cerrar sesión</button></div>
@@ -274,11 +300,13 @@ const App = (() => {
 
   /* ---------- ficha de serie (panel derecho / pantalla completa en móvil) ---------- */
   async function openDetail(id, keepScroll) {
+    if (id.startsWith('c:')) return catalogDetail(id, keepScroll);
     let s, remote = null;
     if (id.startsWith('r:')) {
-      const [, aid, rid] = id.split(':');
+      const aid = id.split(':')[1], rid = ridOf(id);
       const addon = await DB.get('addons', aid);
-      s = await Addons.series(addon, rid);
+      if (!addon) return closeDetail();
+      try { s = await Addons.series(addon, rid); } catch (e) { toast('No se pudo abrir: ' + e.message); return; }
       remote = addon;
       const sid = 'src-' + aid + '-' + rid;
       const have = new Set((await DB.byIndex('items', 'seriesId', sid)).map(i => i.num));
@@ -351,13 +379,86 @@ const App = (() => {
     else d.scrollTop = keepScroll;
     if (!wasOpen) d.firstElementChild?.nextElementSibling?.animate([{ opacity: 0, transform: 'translateX(20px)' }, { opacity: 1, transform: 'none' }], { duration: 300, easing: 'ease-out' });
   }
+  /* ---------- ficha del catálogo (AniList): info, tráiler, dónde verlo y recomendaciones ---------- */
+  async function catalogDetail(id, keepScroll) {
+    const d = $('#detail');
+    if (ui.detail?.id !== id) { $('#app').classList.add('has-detail'); d.innerHTML = '<div class="d-wrap"><p class="muted" style="padding:40px 0;text-align:center">Cargando…</p></div>'; }
+    let c;
+    try { c = await Catalog.detail(id.slice(2)); } catch (e) { d.innerHTML = `<div class="d-wrap"><button class="d-close" data-act="closeDetail" title="Cerrar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button><p class="muted" style="padding:40px 0">${esc(e.message)}</p></div>`; return; }
+    ui.detail = { id, cat: c, s: c };
+    const m = c.meta, anime = c.kind === 'anime';
+    const wished = (await Catalog.wish()).some(w => w.id === id);
+    const bots = (await Addons.list()).filter(a => a.enabled && a.type === 'telegram');
+    const srcs = (await Addons.list()).filter(a => a.enabled && a.type !== 'telegram');
+    const local = (await libraryData()).find(x => x.meta?.id === +id.slice(2));
+    const yt = c.links.filter(l => l.yt), other = c.links.filter(l => !l.yt);
+    const langs = { Spanish: 'ES', English: 'EN', Japanese: 'JP' };
+    const link = l => `<a class="wlink ${l.yt ? 'free' : ''}" href="${esc(l.url)}" target="_blank" rel="noopener" ${l.yt && Catalog.ytEmbed(l.url) ? `data-yt="${esc(l.url)}"` : ''}><b>${esc(l.site)}</b>${l.lang ? `<span class="tiny">${langs[l.lang] || esc(l.lang)}</span>` : ''}${l.yt ? '<span class="tiny">Gratis</span>' : ''}</a>`;
+    const next = c.next ? `<dt>Próximo</dt><dd>Ep. ${c.next.episode} · ${new Date(c.next.airingAt * 1000).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })}</dd>` : '';
+    d.innerHTML = `<div class="d-banner ${c.banner ? 'sharp' : ''}" style="background-image:url(&quot;${esc(c.banner || c.cover)}&quot;)"></div>
+      <div class="d-wrap">
+      <button class="d-close" data-act="closeDetail" title="Cerrar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      <div class="d-head"><div class="cv"><img src="${esc(c.cover)}" alt="">${tag(c.kind)}</div>
+        <div style="min-width:0;padding-right:28px"><h2>${esc(c.title)}</h2>
+        <div class="d-meta">${[m.format, m.year, m.count ? m.count + (anime ? ' ep.' : ' cap.') : '', m.score ? '★ ' + (m.score / 10).toFixed(1) : '', c.studio].filter(Boolean).map(x => `<span>${esc(x)}</span>`).join('')}</div></div></div>
+      <div class="d-actions">
+        ${local ? `<button class="btn primary" data-series="${esc(local.id)}">${playIco}En tu biblioteca</button>` : ''}
+        ${c.trailer ? `<button class="btn ${local ? '' : 'primary'}" data-yt="https://youtu.be/${esc(c.trailer)}">${playIco}Tráiler</button>` : ''}
+        <button class="btn" data-act="wish">${wished ? '✓ Guardado' : '+ ' + (anime ? 'Quiero verlo' : 'Quiero leerlo')}</button>
+        ${bots.length ? `<button class="btn" data-act="askBot">${tgIcon}Pedir a mi bot</button>` : ''}
+        ${srcs.length ? `<button class="btn ghost" data-act="srcSearch">Buscar en mis add-ons</button>` : ''}
+      </div>
+      <div class="d-body">
+        ${c.links.length ? `<h4 class="d-sub">${anime ? 'Dónde verlo' : 'Dónde leerlo'} <span class="tiny">oficial</span></h4><div class="wlinks">${yt.map(link).join('')}${other.map(link).join('')}</div>${yt.length ? '<p class="tiny">Los canales oficiales de YouTube pueden no estar disponibles en todos los países.</p>' : ''}`
+          : `<p class="tiny d-none">AniList no tiene enlaces oficiales para esta serie.</p>`}
+        ${m.genres?.length ? `<div class="chips genres">${m.genres.map(g => `<span class="chip">${esc(g)}</span>`).join('')}</div>` : ''}
+        ${c.desc ? `<p class="d-desc clamp" data-act="more">${esc(c.desc)}</p>` : ''}
+        <dl class="info-grid">${m.format ? `<dt>Formato</dt><dd>${esc(m.format)}</dd>` : ''}${m.year ? `<dt>Año</dt><dd>${m.year}</dd>` : ''}${m.status ? `<dt>Estado</dt><dd>${esc(m.status)}</dd>` : ''}${next}${m.count ? `<dt>Total</dt><dd>${m.count} ${anime ? 'episodios' : 'capítulos'}</dd>` : ''}${c.studio ? `<dt>Estudio</dt><dd>${esc(c.studio)}</dd>` : ''}${c.titles[1] && c.titles[1] !== c.title ? `<dt>También</dt><dd>${esc(c.titles.filter(t => t !== c.title).slice(0, 2).join(' · '))}</dd>` : ''}</dl>
+        <div class="d-tools" style="margin-top:12px"><a class="btn sm ghost" href="${esc(c.url)}" target="_blank" rel="noopener">Ver en AniList ↗</a></div>
+        ${c.recs.length ? `<h4 class="d-sub">Si te gusta, prueba</h4><div class="rail mini">${c.recs.map(r => cardHTML(r)).join('')}</div>` : ''}
+      </div></div>`;
+    $('#app').classList.add('has-detail');
+    document.querySelectorAll('.card').forEach(x => x.classList.toggle('sel', x.dataset.series === id));
+    d.scrollTop = keepScroll || 0;
+  }
+
+  /* Vídeo de YouTube incrustado (tráileres y canales oficiales) */
+  function ytSheet(url, title = '') {
+    const src = Catalog.ytEmbed(url);
+    if (!src) return window.open(url, '_blank', 'noopener');
+    sheet(`<h3>${esc(title || 'YouTube')}</h3><div class="yt"><iframe src="${esc(src)}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>
+      <div class="acts"><a class="btn ghost" href="${esc(url)}" target="_blank" rel="noopener">Abrir en YouTube ↗</a><button class="btn primary" data-close>Cerrar</button></div>`, w => w.querySelector('.sheet').classList.add('wide'));
+  }
+
+  async function askBot(text) {
+    const bots = (await Addons.list()).filter(a => a.enabled && a.type === 'telegram');
+    const open = async b => { if (!(await Tg.ready())) { ui.exQ = text; return botSheet(b.id); } Tg.openChat(b, b.commands?.search ? b.commands.search.replace('{q}', text) : text); };
+    if (bots.length === 1) return open(bots[0]);
+    sheet(`<h3>¿A qué bot se lo pides?</h3><div class="menu">${bots.map(b => `<button class="ep" data-b="${esc(b.id)}"><span class="grow"><b>${esc(b.name)}</b><span class="tiny">${esc(b.bot)}</span></span></button>`).join('')}</div><div class="acts"><button class="btn" data-close>Cancelar</button></div>`,
+      (w, close) => w.querySelector('.menu').onclick = e => { const id = e.target.closest('[data-b]')?.dataset.b; if (!id) return; close(); open(bots.find(b => b.id === id)); });
+  }
+
+  /* Stremio: elegir enlace del episodio */
+  async function stremioPlay(remote, s, it) {
+    progress('Buscando enlaces…');
+    let ss; try { ss = await Addons.streams(remote, it); $('#toast').classList.remove('on'); } catch (e) { return toast('No se pudieron cargar los enlaces: ' + e.message); }
+    if (!ss.length) return toast('Esta fuente no tiene enlaces para este episodio');
+    const playUrl = st => { const ser = { id: 'tmp', title: s.title, kind: 'anime' }; Player.open({ id: 'tmp-' + it.num, seriesId: 'tmp', num: it.num, title: it.title, url: st.url, total: 0, pos: 0 }, ser); };
+    const ok = ss.filter(x => x.url || x.yt || x.ext);
+    if (ok.length === 1 && ok[0].url && !ok[0].hls) return playUrl(ok[0]);
+    sheet(`<h3>${esc(it.title)}</h3><div class="menu">${ss.map((x, i) => `<button class="ep" data-i="${i}" ${x.torrent && !x.url ? 'disabled' : ''}><span class="grow"><b>${esc(x.label)}</b><span class="tiny">${x.yt ? 'YouTube' : x.ext ? 'Se abre fuera de Lector' : x.torrent && !x.url ? 'Torrent: no compatible' : x.hls ? 'Emisión HLS (mejor en iPhone/iPad)' : 'Vídeo directo'}</span></span></button>`).join('')}</div><div class="acts"><button class="btn" data-close>Cerrar</button></div>`,
+      (w, close) => w.querySelector('.menu').onclick = e => { const b = e.target.closest('[data-i]'); if (!b || b.disabled) return; close(); const x = ss[+b.dataset.i];
+        if (x.url) return playUrl(x); if (x.yt) return ytSheet('https://youtu.be/' + x.yt, it.title); if (x.ext) window.open(x.ext, '_blank', 'noopener'); });
+  }
+
   function closeDetail() { ui.detail = null; $('#app').classList.remove('has-detail'); document.querySelectorAll('.card.sel').forEach(c => c.classList.remove('sel')); }
 
   async function itemClick(key) {
     const { s, remote } = ui.detail;
     if (remote) {
       const it = s.items.find(i => 'r' + i.num === key);
-      if (it.have) { const sid = 'src-' + remote.id + '-' + s.id.split(':')[2]; const local = await DB.get('items', sid + '-' + it.num); const ser = await DB.get('series', sid); return play(ser, local); }
+      if (it.have) { const sid = 'src-' + remote.id + '-' + ridOf(s.id); const local = await DB.get('items', sid + '-' + it.num); const ser = await DB.get('series', sid); return play(ser, local); }
+      if (remote.type === 'stremio') return stremioPlay(remote, s, it);
       // Ver online sin descargar
       const ser = { id: 'tmp', title: s.title, kind: s.kind, hue: s.hue, mode: 'rtl' };
       const tmp = { id: 'tmp-' + it.num, seriesId: 'tmp', num: it.num, title: it.title, demo: it.demo, total: s.kind === 'anime' ? 1440 : 18, pos: 0 };
@@ -441,7 +542,7 @@ const App = (() => {
   /* ---------- add-ons: formulario ---------- */
   function addAddonSheet() {
     sheet(`<h3>Añadir add-on</h3>
-      <div class="seg" id="aType" style="margin-bottom:12px"><button data-v="telegram" class="on">Bot de Telegram</button><button data-v="streaming">Streaming</button></div>
+      <div class="seg" id="aType" style="margin-bottom:12px"><button data-v="telegram" class="on">Bot de Telegram</button><button data-v="streaming">Stremio / streaming</button></div>
       <div id="aTg">
         <div class="field"><label>Nombre</label><input id="aName" placeholder="Mi bot de anime"></div>
         <div class="field"><label>Usuario del bot</label><input id="aBot" placeholder="@mibot"></div>
@@ -449,8 +550,8 @@ const App = (() => {
         <div class="field"><label>Comando para buscar (opcional)</label><input id="aCmd" placeholder="/buscar {q}"><span class="tiny">{q} se sustituye por lo que busques. Si lo dejas vacío, se envía el texto tal cual.</span></div>
       </div>
       <div id="aSt" hidden>
-        <div class="field"><label>Enlace al add-on (.json) o pega el JSON</label><input id="aUrl" placeholder="https://…/addon.json"></div>
-        <p class="tiny">Formato en docs/ADDONS.md.</p>
+        <div class="field"><label>Enlace del add-on</label><input id="aUrl" placeholder="https://…/manifest.json"></div>
+        <p class="tiny">Vale la URL de un add-on de Stremio (manifest.json, también stremio://…) o de un catálogo con el formato de Lector (docs/ADDONS.md). También puedes pegar el JSON. Usa solo fuentes que tengas derecho a ver.</p>
       </div>
       <p id="aErr" class="tiny" style="color:#ff7a7a"></p>
       <div class="acts"><button class="btn" data-close>Cancelar</button><button class="btn primary" id="aOk">Añadir</button></div>`, (w, close) => {
@@ -462,9 +563,9 @@ const App = (() => {
           if (type === 'telegram') {
             let bot = $('#aBot', w).value.trim(); if (bot && !bot.startsWith('@')) bot = '@' + bot;
             await Addons.install({ type, name: $('#aName', w).value.trim() || bot, bot, kinds: [...w.querySelectorAll('#aKinds .on')].map(b => b.dataset.v), commands: { search: $('#aCmd', w).value.trim() } });
-          } else await Addons.install($('#aUrl', w).value);
+          } else { $('#aOk', w).disabled = true; $('#aOk', w).textContent = 'Instalando…'; await Addons.install($('#aUrl', w).value); }
           close(); toast('Add-on añadido'); refresh();
-        } catch (e) { $('#aErr', w).textContent = e.message; }
+        } catch (e) { $('#aErr', w).textContent = e.message; $('#aOk', w).disabled = false; $('#aOk', w).textContent = 'Añadir'; }
       };
     });
   }
@@ -648,12 +749,13 @@ const App = (() => {
     document.addEventListener('click', async e => {
       const t = e.target;
       const goEl = t.closest('[data-go]'); if (goEl) { e.preventDefault(); return go(goEl.dataset.go); }
+      const yEl = t.closest('[data-yt]'); if (yEl) { e.preventDefault(); return ytSheet(yEl.dataset.yt, ui.detail?.cat?.title); }
       const sEl = t.closest('[data-series]'); if (sEl) return openDetail(sEl.dataset.series);
       const pEl = t.closest('[data-play]'); if (pEl) { const [sid, iid] = pEl.dataset.play.split('|'); const s = await DB.get('series', sid); return play(s, await DB.get('items', iid)); }
       const iEl = t.closest('#detail [data-item]'); if (iEl) return itemClick(iEl.dataset.item);
       const mEl = t.closest('[data-menu]'); if (mEl) return itemMenu(mEl.dataset.menu);
-      const dEl = t.closest('[data-dl]'); if (dEl) { const { s, remote } = ui.detail; const it = s.items.find(i => i.num === +dEl.dataset.dl); await Downloads.enqueue(remote, { ...s, id: s.id.split(':')[2] }, [it]); dEl.remove(); return toast('Añadido a descargas'); }
-      const chips = t.closest('[data-chips] .chip:not([data-act])'); if (chips) { ui[chips.parentElement.dataset.chips] = chips.dataset.v; return render(); }
+      const dEl = t.closest('[data-dl]'); if (dEl) { const { s, remote } = ui.detail; const it = s.items.find(i => i.num === +dEl.dataset.dl); await Downloads.enqueue(remote, { ...s, id: ridOf(s.id) }, [it]); dEl.remove(); return toast('Añadido a descargas'); }
+      const chips = t.closest('[data-chips] button:not([data-act])'); if (chips) { ui[chips.parentElement.dataset.chips] = chips.dataset.v; return render(); }
       const tg = t.closest('[data-toggle]'); if (tg) { await Addons.toggle(tg.dataset.toggle); return render(); }
       const rm = t.closest('[data-remove]'); if (rm) { if (await confirmSheet('¿Quitar este add-on?', 'Quitar')) { await Addons.remove(rm.dataset.remove); render(); } return; }
       const bot = t.closest('[data-bot]'); if (bot) return botSheet(bot.dataset.bot);
@@ -671,6 +773,10 @@ const App = (() => {
       const rl = t.closest('[data-rail]'); if (rl) { const [id, d] = rl.dataset.rail.split('|'); const r = $('#rail-' + id); r.scrollBy({ left: r.clientWidth * .8 * d, behavior: 'smooth' }); return; }
       const act = t.closest('[data-act]')?.dataset.act; if (!act) return;
       if (act === 'import') $('#importBtn').click();
+      if (act === 'wish') { const added = await Catalog.toggleWish(ui.detail.cat); toast(added ? 'Guardado en Explorar' : 'Quitado'); if (ui.view === 'explorar') render(); return catalogDetail(ui.detail.id, $('#detail').scrollTop); }
+      if (act === 'askBot') return askBot(ui.detail.cat.title);
+      if (act === 'srcSearch') { ui.exQ = ui.detail.cat.title; ui.exKind = ui.detail.cat.kind; closeDetail(); return go('explorar'); }
+      if (act === 'retryCat') return render();
       if (act === 'closeDetail') closeDetail();
       if (act === 'anilist') return anilistSheet(ui.detail.s);
       if (act === 'editLists') return editLists();
@@ -690,7 +796,7 @@ const App = (() => {
       if (act === 'install') install();
       if (act === 'clearDemo') { await Demo.clear(); closeDetail(); toast('Ejemplos quitados'); refresh(); }
       if (act === 'addDemo') { await DB.setKV('demoSeeded', false); await Demo.seed(); refresh(); }
-      if (act === 'dlAll') { const { s, remote } = ui.detail; await Downloads.enqueue(remote, { ...s, id: s.id.split(':')[2] }, s.items.filter(i => !i.have)); toast('Descargando ' + s.title); go('descargas'); }
+      if (act === 'dlAll') { const { s, remote } = ui.detail; await Downloads.enqueue(remote, { ...s, id: ridOf(s.id) }, s.items.filter(i => !i.have)); toast('Descargando ' + s.title); go('descargas'); }
       if (act === 'saveTg' || act === 'tgLogin') {
         const tgv = { ...(await DB.getKV('telegram', {})), apiId: $('#tgId').value.trim(), apiHash: $('#tgHash').value.trim() };
         await DB.setKV('telegram', tgv);
