@@ -2,7 +2,7 @@
 const App = (() => {
   const $ = (s, r = document) => r.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const VERSION = '0.4.0';
+  const VERSION = '0.4.1';
   const pl = (n, [one, many]) => `${n} ${n === 1 ? one : many}`;
   const DEF_LISTS = ['Leyendo', 'Pendiente', 'Favoritos', 'Abandonado'];
   const getLists = async () => DB.getKV('lists', DEF_LISTS);
